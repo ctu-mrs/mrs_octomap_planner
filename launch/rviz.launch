@@ -1,0 +1,5 @@
+<launch>
+  <group>
+    <node pkg="rviz" type="rviz" name="rviz" args="-d $(find pathfinder)/rviz/rviz.rviz" />
+  </group>
+</launch>
