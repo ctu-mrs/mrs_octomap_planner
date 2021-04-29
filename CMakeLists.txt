@@ -9,6 +9,7 @@ find_package(catkin REQUIRED
   )
 
 find_package(octomap REQUIRED)
+find_package(dynamicEDT3D REQUIRED)
 
 # include Eigen3
 find_package(Eigen3 REQUIRED)
@@ -31,8 +32,8 @@ include_directories(
 
 add_library(astar_planner src/astar_planner.cpp)
 add_dependencies(astar_planner ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(astar_planner ${catkin_LIBRARIES} ${OCTOMAP_LIBRARIES})
+target_link_libraries(astar_planner ${catkin_LIBRARIES} ${OCTOMAP_LIBRARIES} ${DYNAMICEDT3D_LIBRARIES})
 
 add_executable(pathfinder src/pathfinder.cpp)
 add_dependencies(pathfinder ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(pathfinder astar_planner ${catkin_LIBRARIES} ${OCTOMAP_LIBRARIES})
+target_link_libraries(pathfinder astar_planner ${catkin_LIBRARIES} ${OCTOMAP_LIBRARIES} ${DYNAMICEDT3D_LIBRARIES})

@@ -3,7 +3,8 @@
   <node name="pathfinder" pkg="pathfinder" type="pathfinder" output="screen">
     <rosparam file="$(find pathfinder)/config/pathfinder.yaml" command="load" />
     <remap from="~odom_in" to="/$(arg uav)/odometry/odom_main" />
-    <!-- <remap from="~octomap_in" to="/$(arg uav)/???" /> -->
+    <remap from="~octomap_in" to="/$(arg uav)/octomap_server/octomap_full" />
+    <remap from="~goto_in" to="/$(arg uav)/pathfinder/goto" />
   </node>
 
 </launch>

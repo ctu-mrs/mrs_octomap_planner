@@ -20,10 +20,10 @@ windows:
       layout: tiled
       panes:
         - waitForSimulation; rosservice call /mrs_drone_spawner/spawn "1 $UAV_TYPE --enable-rangefinder --enable-rplidar"
-  # - hector_slam:
-  #     layout: tiled
-  #     panes:
-  #       - waitForOdometry; roslaunch mrs_uav_general hector_slam.launch
+  - mapping:
+      layout: tiled
+      panes:
+        - waitForOdometry; roslaunch octomap_server octomap_server.launch
   - bumper:
       layout: tiled
       panes:

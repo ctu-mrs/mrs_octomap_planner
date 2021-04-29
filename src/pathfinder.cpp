@@ -1,6 +1,7 @@
 // some ros includes
-#include "octomap/OcTree.h"
 #include <ros/ros.h>
+#include <octomap_msgs/Octomap.h>
+#include <octomap_msgs/conversions.h>
 
 #include <nav_msgs/Odometry.h>
 
@@ -30,10 +31,11 @@ double distance_penalty;
 double greedy_penalty;
 bool   unknown_is_occupied;
 
+std::shared_ptr<octomap::OcTree> octree_;
+
 // visualizer params
 double points_scale;
 double lines_scale;
-
 
 // uav odometry
 Eigen::Vector4d    uav_pos;  // [m]
@@ -44,6 +46,7 @@ mrs_lib::BatchVisualizer bv;
 
 // subscribers
 ros::Subscriber    odom_subscriber;
+ros::Subscriber    octomap_subscriber;
 ros::ServiceServer goto_server;
 
 // publishers
@@ -65,6 +68,7 @@ void timerCallback([[maybe_unused]] const ros::TimerEvent& evt) {
 
 /* odomCallback //{ */
 void odomCallback(const nav_msgs::Odometry& odom_in) {
+  ROS_INFO_ONCE("[%s]: Getting odom", ros::this_node::getName().c_str());
   uav_pos.x() = odom_in.pose.pose.position.x;
   uav_pos.y() = odom_in.pose.pose.position.y;
   uav_pos.z() = odom_in.pose.pose.position.z;
@@ -77,8 +81,43 @@ void odomCallback(const nav_msgs::Odometry& odom_in) {
 }
 //}
 
+/* octomapCallback //{ */
+void octomapCallback(const octomap_msgs::OctomapPtr octomap_in) {
+  ROS_INFO_ONCE("[%s]: Getting octomap", ros::this_node::getName().c_str());
+  auto tree_ptr = octomap_msgs::fullMsgToMap(*octomap_in);
+  if (!tree_ptr) {
+    ROS_WARN("[%s]: Octomap message is empty!", ros::this_node::getName().c_str());
+  } else {
+    octree_ = std::shared_ptr<octomap::OcTree>(dynamic_cast<octomap::OcTree*>(tree_ptr));
+  }
+}
+//}
+
 /* gotoCallback //{ */
 bool gotoCallback([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
+
+  bv.clearBuffers();
+  bv.clearVisuals();
+
+  pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(octree_, euclidean_distance_cutoff, unknown_is_occupied);
+  octomap::point3d         start;
+  start.x() = uav_pos.x();
+  start.y() = uav_pos.y();
+  start.z() = uav_pos.z();
+
+  octomap::point3d goal;
+  goal.x() = req.goal[0];
+  goal.y() = req.goal[1];
+  goal.z() = req.goal[2];
+
+  auto path = planner.findPath(start, goal);
+
+  for (auto& p : path) {
+    bv.addPoint(Eigen::Vector3d(p.x(), p.y(), p.z()));
+  }
+
+  bv.publish();
+
   res.success = true;
   res.message = "Success";
   return true;
@@ -106,7 +145,8 @@ int main(int argc, char** argv) {
 
   /* map_timer = nh_.createTimer(ros::Duration(2), &timerCallback); */
 
-  odom_subscriber = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
+  odom_subscriber    = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
+  octomap_subscriber = nh_.subscribe("octomap_in", 1, &octomapCallback, ros::TransportHints().tcpNoDelay());
 
   // BatchVisualizer setup
   bv = mrs_lib::BatchVisualizer(nh_, "visualize", "uav1/gps_origin");
@@ -114,13 +154,8 @@ int main(int argc, char** argv) {
   bv.setLinesScale(lines_scale);
 
 
-  goto_server = nh_.advertiseService("goto", &gotoCallback);
+  goto_server = nh_.advertiseService("goto_in", &gotoCallback);
 
-  auto             planner = AstarPlanner();
-  octomap::point3d p1{0, 0, 0};
-  octomap::point3d p2{1, 0, 0};
-  octomap::OcTree* tree;
-  planner.findPath(p1, p2, *tree);
 
   ROS_INFO("[%s]: Initialized!", ros::this_node::getName().c_str());
   ros::spin();
