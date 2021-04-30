@@ -1,14 +1,13 @@
 # planning
 euclidean_distance_cutoff: 4.0 # [m]
-clearing_distance: 0.4 # [m]
+clearing_radius: 0.4 # [m]
 safe_obstacle_distance: 1.0 # [m]
 navigation_tolerance: 0.3 # [m]
 explore_unknown_threshold: 6.0 # [m] distance between a cell and a goal through unknown space
-min_altitude: 1.0 # [m]
 distance_penalty: 0.5
 greedy_penalty: 1.0
 unknown_is_occupied: false
 
 # visualization
 points_scale: 0.22
-lines_scale: 0.18
+lines_scale: 0.02

@@ -22,11 +22,10 @@
 
 // params
 double euclidean_distance_cutoff;
-double clearing_distance;
+double clearing_radius;
 double safe_obstacle_distance;
 double navigation_tolerance;
 double explore_unknown_threshold;
-double min_altitude;
 double distance_penalty;
 double greedy_penalty;
 bool   unknown_is_occupied;
@@ -96,10 +95,7 @@ void octomapCallback(const octomap_msgs::OctomapPtr octomap_in) {
 /* gotoCallback //{ */
 bool gotoCallback([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
 
-  bv.clearBuffers();
-  bv.clearVisuals();
-
-  pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(octree_, euclidean_distance_cutoff, unknown_is_occupied);
+  pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(safe_obstacle_distance, clearing_radius, euclidean_distance_cutoff, unknown_is_occupied, bv);
   octomap::point3d         start;
   start.x() = uav_pos.x();
   start.y() = uav_pos.y();
@@ -110,13 +106,11 @@ bool gotoCallback([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4:
   goal.y() = req.goal[1];
   goal.z() = req.goal[2];
 
-  auto path = planner.findPath(start, goal);
+  auto path = planner.findPath(start, goal, octree_);
 
   for (auto& p : path) {
     bv.addPoint(Eigen::Vector3d(p.x(), p.y(), p.z()));
   }
-
-  bv.publish();
 
   res.success = true;
   res.message = "Success";
@@ -132,11 +126,10 @@ int main(int argc, char** argv) {
   mrs_lib::ParamLoader param_loader(nh_, "debug_planner_executable");
 
   param_loader.loadParam("euclidean_distance_cutoff", euclidean_distance_cutoff);
-  param_loader.loadParam("clearing_distance", clearing_distance);
+  param_loader.loadParam("clearing_radius", clearing_radius);
   param_loader.loadParam("safe_obstacle_distance", safe_obstacle_distance);
   param_loader.loadParam("navigation_tolerance", navigation_tolerance);
   param_loader.loadParam("explore_unknown_threshold", explore_unknown_threshold);
-  param_loader.loadParam("min_altitude", min_altitude);
   param_loader.loadParam("distance_penalty", distance_penalty);
   param_loader.loadParam("greedy_penalty", greedy_penalty);
   param_loader.loadParam("unknown_is_occupied", unknown_is_occupied);

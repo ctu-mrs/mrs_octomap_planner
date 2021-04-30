@@ -1,6 +1,8 @@
 #ifndef PATHFINDER_ASTAR_PLANNER_H
 #define PATHFINDER_ASTAR_PLANNER_H
 
+#define VISUALIZE
+
 #include <memory>
 #include <set>
 #include <unordered_map>
@@ -9,12 +11,16 @@
 #include <octomap/octomap.h>
 #include <dynamicEDT3D/dynamicEDTOctomap.h>
 
+#ifdef VISUALIZE
+#include <mrs_lib/batch_visualizer.h>
+#endif
+
+
 namespace pathfinder
 {
 
 enum TreeValue
 {
-  UNKNOWN  = -1,
   OCCUPIED = 0,
   FREE     = 1
 };
@@ -44,14 +50,23 @@ struct HashFunction
 class AstarPlanner {
 
 public:
-  AstarPlanner(std::shared_ptr<octomap::OcTree> tree, const double &euclidean_distance_cutoff, const bool &unknown_is_occupied);
+#ifndef VISUALIZE
+  AstarPlanner(double safe_obstacle_distance, double clearing_radius, double euclidean_distance_cutoff, bool unknown_is_occupied);
+#endif
+#ifdef VISUALIZE
+  AstarPlanner(double safe_obstacle_distance, double clearing_radius, double euclidean_distance_cutoff, bool unknown_is_occupied, mrs_lib::BatchVisualizer &bv);
+#endif
 
 private:
-  std::shared_ptr<octomap::OcTree>             tree;
-  /* DynamicEDTOctomap                            euclidean_field; */
-  std::set<Node, CostComparator>               open;
-  std::unordered_set<Node, HashFunction>       closed;
-  std::unordered_map<Node, Node, HashFunction> parent_map;  // first = child, second = parent
+  double safe_obstacle_distance;
+  double clearing_radius;
+  double euclidean_distance_cutoff;
+  bool   unknown_is_occupied;
+
+#ifdef VISUALIZE
+  mrs_lib::BatchVisualizer bv;
+#endif
+
 
 public:
   /**
@@ -59,20 +74,22 @@ public:
    *
    * @param start 3D point
    * @param goal 3D point
+   * @param mapping_tree current octomap of the world
    *
    * @return vector of 3D points ordered from start to goal. Returns empty vector if a path does not exist
    */
-  std::vector<octomap::point3d> findPath(const octomap::point3d &start, const octomap::point3d &goal);
+  std::vector<octomap::point3d> findPath(const octomap::point3d &start, const octomap::point3d &goal, std::shared_ptr<octomap::OcTree> mapping_tree);
 
   /**
    * @brief Find the path from @start key to @goal key
    *
    * @param start key
    * @param goal key
+   * @param mapping_tree current octomap of the world
    *
    * @return vector of 3D points ordered from start to goal. Returns empty vector if a path does not exist
    */
-  std::vector<octomap::point3d> findPath(const octomap::OcTreeKey &start, const octomap::OcTreeKey &goal);
+  std::vector<octomap::point3d> findPath(const octomap::OcTreeKey &start, const octomap::OcTreeKey &goal, std::shared_ptr<octomap::OcTree> mapping_tree);
 
 private:
   const std::vector<octomap::point3d> EXPANSION_DIRECTIONS = {{0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}};
@@ -84,16 +101,17 @@ private:
    *
    * @return depth of the node (by default, the tree depth goes up to 16 for the finest resolution)
    */
-  double geNodeDepth(const octomap::OcTreeKey &key);
+  double geNodeDepth(const octomap::OcTreeKey &key, octomap::OcTree &tree);
 
   /**
    * @brief Return the 6 neighboring cells of the given key. If the neighbor is NULL, it will not be returned
    *
    * @param key of the node to be evaluated
+   * @param tree
    *
    * @return vector containing keys of neighboring nodes
    */
-  std::vector<octomap::OcTreeKey> getNeighborhood(const octomap::OcTreeKey &key);
+  std::vector<octomap::OcTreeKey> getNeighborhood(const octomap::OcTreeKey &key, octomap::OcTree &tree);
 
   /**
    * @brief Search the tree in a given direction
@@ -103,7 +121,7 @@ private:
    *
    * @return key of the next tree node in this direction (will make larger steps if the tree depth is low at the current key)
    */
-  octomap::OcTreeKey expand(const octomap::OcTreeKey &key, const octomap::point3d &direction);
+  octomap::OcTreeKey expand(const octomap::OcTreeKey &key, const octomap::point3d &direction, octomap::OcTree &tree);
 
   /**
    * @brief Compute the Euclidean distance between two 3D points
@@ -120,20 +138,22 @@ private:
    *
    * @param k1
    * @param k2
+   * @param tree
    *
    * @return Euclidean distance in meters
    */
-  double distEuclidean(const octomap::OcTreeKey &k1, const octomap::OcTreeKey &k2);
+  double distEuclidean(const octomap::OcTreeKey &k1, const octomap::OcTreeKey &k2, octomap::OcTree &tree);
 
   /**
    * @brief Check if two points can be connected by a straight line of free cells
    *
    * @param p1
    * @param p2
+   * @param tree
    *
    * @return true if the line only contains free cells
    */
-  bool freeStraightPath(const octomap::point3d p1, const octomap::point3d p2);
+  bool freeStraightPath(const octomap::point3d p1, const octomap::point3d p2, octomap::OcTree &tree);
 
   /**
    * @brief Trace a path from Node @start to Node @end
@@ -144,7 +164,7 @@ private:
    *
    * @return vector of keys, ordered from end to start
    */
-  std::vector<octomap::OcTreeKey> backtrackPathKeys(const Node &start, const Node &end);
+  std::vector<octomap::OcTreeKey> backtrackPathKeys(const Node &start, const Node &end, std::unordered_map<Node, Node, HashFunction> &parent_map);
 
   /**
    * @brief Convert a vector of keys to a vector of 3D points
@@ -154,7 +174,7 @@ private:
    *
    * @return vector of 3D points
    */
-  std::vector<octomap::point3d> keysToCoords(std::vector<octomap::OcTreeKey> keys);
+  std::vector<octomap::point3d> keysToCoords(std::vector<octomap::OcTreeKey> keys, octomap::OcTree &tree);
 
 
   /**
@@ -165,8 +185,30 @@ private:
    *
    * @return Euclidean distance transform of the octree
    */
-  DynamicEDTOctomap euclideanDistanceTransform(const double euclidean_distance_cutoff, const bool unknown_is_occupied);
+  DynamicEDTOctomap euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree);
+
+  /**
+   * @brief Create a modified tree suitable for collision-free path planning
+   * Perform an Euclidean distance transform, clear area around starting position and crop low altitudes
+   *
+   * @param tree output of mapping node
+   * @param start key of the start cell
+   *
+   * @return octree suitable for planning
+   */
+  octomap::OcTree createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::OcTreeKey &start);
+
+#ifdef VISUALIZE
+  /**
+   * @brief Use the MRS Batch Visualizer to show the tree
+   *
+   * @param tree octree to be visualized
+   * @param show_unoccupied true to also draw unoccupied cells
+   */
+  void visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied);
+#endif
 };
+
 }  // namespace pathfinder
 
 #endif
