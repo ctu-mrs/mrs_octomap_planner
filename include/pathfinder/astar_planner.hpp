@@ -101,7 +101,7 @@ private:
    *
    * @return depth of the node (by default, the tree depth goes up to 16 for the finest resolution)
    */
-  double geNodeDepth(const octomap::OcTreeKey &key, octomap::OcTree &tree);
+  double getNodeDepth(const octomap::OcTreeKey &key, octomap::OcTree &tree);
 
   /**
    * @brief Return the 6 neighboring cells of the given key. If the neighbor is NULL, it will not be returned
@@ -200,12 +200,21 @@ private:
 
 #ifdef VISUALIZE
   /**
-   * @brief Use the MRS Batch Visualizer to show the tree
+   * @brief Use the MRS Batch Visualizer to draw the octree
    *
    * @param tree octree to be visualized
    * @param show_unoccupied true to also draw unoccupied cells
    */
   void visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied);
+  
+  /**
+   * @brief Use the MRS Batch Visualizer to draw all open and closed expansions
+   *
+   * @param open
+   * @param closed
+   * @param tree
+   */
+  void visualizeExpansions(std::set<Node, CostComparator> open, std::unordered_set<Node, HashFunction> closed, octomap::OcTree &tree);
 #endif
 };
 

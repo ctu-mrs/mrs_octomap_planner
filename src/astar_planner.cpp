@@ -1,3 +1,4 @@
+#include "ros/duration.h"
 #include <pathfinder/astar_planner.hpp>
 
 namespace pathfinder
@@ -59,12 +60,9 @@ std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::OcTreeKey &s
 #ifdef VISUALIZE
   bv.clearBuffers();
   bv.clearVisuals();
-  visualizeTreeCubes(tree, false);
+  /* visualizeTreeCubes(tree, false); */
   bv.publish();
 #endif
-
-  // DEBUG
-  return std::vector<octomap::point3d>();
 
   std::set<Node, CostComparator>               open;
   std::unordered_set<Node, HashFunction>       closed;
@@ -82,9 +80,18 @@ std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::OcTreeKey &s
   first.total_cost = first.cum_dist + first.goal_dist;
   open.insert(first);
 
-  while (!open.empty()) {
+  int iteration = 0;
+  while (!open.empty() && iteration < 100000) {
+#ifdef VISUALIZE
+    bv.clearBuffers();
+    visualizeExpansions(open, closed, tree);
+    bv.publish();
+#endif
+    iteration++;
+
     auto current = *open.begin();
     open.erase(current);
+    closed.insert(current);
 
     auto current_coord = tree.keyToCoord(current.key);
     std::cout << "Current coord: " << current_coord.x() << ", " << current_coord.y() << ", " << current_coord.z() << std::endl;
@@ -98,6 +105,10 @@ std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::OcTreeKey &s
     // expand
     auto neighbors = getNeighborhood(current.key, tree);
     for (auto &nkey : neighbors) {
+
+      if (tree.search(nkey)->getValue() == TreeValue::OCCUPIED) {
+        continue;
+      }
 
       auto ncoord = tree.keyToCoord(nkey);
       Node n;
@@ -145,8 +156,8 @@ std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::point3d &sta
 }
 //}
 
-/* geNodeDepth //{ */
-double AstarPlanner::geNodeDepth(const octomap::OcTreeKey &key, octomap::OcTree &tree) {
+/* getNodeDepth //{ */
+double AstarPlanner::getNodeDepth(const octomap::OcTreeKey &key, octomap::OcTree &tree) {
   for (auto it = tree.begin(); it != tree.end(); it++) {
     if (it.getKey() == key) {
       return it.getDepth();
@@ -163,7 +174,7 @@ std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcT
   for (auto &d : EXPANSION_DIRECTIONS) {
     auto newkey    = expand(key, d, tree);
     auto tree_node = tree.search(newkey);
-    if (tree_node != NULL && std::abs(tree_node->getValue()) < tree.getOccupancyThres()) {
+    if (tree_node != NULL) {
       // free cell
       neighbors.push_back(newkey);
     }
@@ -217,7 +228,7 @@ bool AstarPlanner::freeStraightPath(const octomap::point3d p1, const octomap::po
     if (tree_node == NULL) {
       // Path may exist, but goes through unknown cells
       return false;
-    } else if (std::abs(tree_node->getValue()) > tree.getOccupancyThres()) {
+    } else if (tree_node->getValue() == TreeValue::OCCUPIED) {
       // Path goes through occupied cells
       return false;
     }
@@ -286,6 +297,7 @@ octomap::OcTree AstarPlanner::createPlanningTree(std::shared_ptr<octomap::OcTree
 //}
 
 #ifdef VISUALIZE
+/* visualizeTreeCubes //{ */
 void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied) {
 
   for (auto it = tree.begin(); it != tree.end(); it++) {
@@ -305,6 +317,27 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
     }
   }
 }
+//}
+
+/* visualizeExpansions //{ */
+void AstarPlanner::visualizeExpansions(std::set<Node, CostComparator> open, std::unordered_set<Node, HashFunction> closed, octomap::OcTree &tree) {
+  for (auto &n : open) {
+    auto            coord = tree.keyToCoord(n.key);
+    Eigen::Vector3d p(coord.x(), coord.y(), coord.z());
+    bv.addPoint(p, 0.2, 1.0, 0.2, 1.0);
+  }
+  /* for (auto &n : closed) { */
+  /*   auto                      coord = tree.keyToCoord(n.key); */
+  /*   Eigen::Vector3d           center(coord.x(), coord.y(), coord.z()); */
+  /*   double                    cube_scale  = tree.getResolution() * std::pow(2, tree.getTreeDepth() - getNodeDepth(n.key, tree)); */
+  /*   Eigen::Vector3d           size        = Eigen::Vector3d(1, 1, 1) * cube_scale; */
+  /*   Eigen::Quaterniond        orientation = Eigen::Quaterniond::Identity(); */
+  /*   mrs_lib::geometry::Cuboid c(center, size, orientation); */
+  /*   bv.addCuboid(c, 0.6, 0.0, 0.0, 1.0, true); */
+  /* } */
+}
+//}
+
 #endif
 
 }  // namespace pathfinder
