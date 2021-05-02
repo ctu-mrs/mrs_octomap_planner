@@ -51,17 +51,20 @@ class AstarPlanner {
 
 public:
 #ifndef VISUALIZE
-  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, bool unknown_is_occupied);
+  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty, double greedy_penalty,
+               bool unknown_is_occupied);
 #endif
 #ifdef VISUALIZE
-  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, bool unknown_is_occupied,
-               mrs_lib::BatchVisualizer &bv);
+  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty, double greedy_penalty,
+               bool unknown_is_occupied, mrs_lib::BatchVisualizer &bv);
 #endif
 
 private:
   double safe_obstacle_distance;
   double euclidean_distance_cutoff;
   double planning_tree_resolution;
+  double distance_penalty;
+  double greedy_penalty;
   bool   unknown_is_occupied;
 
 #ifdef VISUALIZE

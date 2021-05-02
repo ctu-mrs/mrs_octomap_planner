@@ -1,4 +1,5 @@
 // some ros includes
+#include "mrs_msgs/TrajectoryReference.h"
 #include <ros/ros.h>
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
@@ -23,7 +24,6 @@
 // params
 double euclidean_distance_cutoff;
 double safe_obstacle_distance;
-double navigation_tolerance;
 double explore_unknown_threshold;
 double distance_penalty;
 double greedy_penalty;
@@ -31,6 +31,7 @@ double planning_tree_resolution;
 bool   unknown_is_occupied;
 
 std::shared_ptr<octomap::OcTree> octree_;
+std::string                      map_frame;
 
 // visualizer params
 double points_scale;
@@ -57,7 +58,6 @@ ros::Timer map_timer;
 
 /* timerCallback //{ */
 void timerCallback([[maybe_unused]] const ros::TimerEvent& evt) {
-
   // do stuff
 }
 //}
@@ -80,6 +80,7 @@ void odomCallback(const nav_msgs::Odometry& odom_in) {
 /* octomapCallback //{ */
 void octomapCallback(const octomap_msgs::OctomapPtr octomap_in) {
   ROS_INFO_ONCE("[%s]: Getting octomap", ros::this_node::getName().c_str());
+  map_frame     = octomap_in->header.frame_id;
   auto tree_ptr = octomap_msgs::fullMsgToMap(*octomap_in);
   if (!tree_ptr) {
     ROS_WARN("[%s]: Octomap message is empty!", ros::this_node::getName().c_str());
@@ -94,10 +95,9 @@ bool gotoCallback([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4:
 
   command_bv.clearBuffers();
 
-  pathfinder::AstarPlanner planner =
-      pathfinder::AstarPlanner(safe_obstacle_distance, euclidean_distance_cutoff, planning_tree_resolution, unknown_is_occupied, planner_bv);
-      /* pathfinder::AstarPlanner(safe_obstacle_distance, euclidean_distance_cutoff, planning_tree_resolution, unknown_is_occupied); */
-  octomap::point3d start;
+  pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(safe_obstacle_distance, euclidean_distance_cutoff, planning_tree_resolution, distance_penalty,
+                                                              greedy_penalty, unknown_is_occupied, planner_bv);
+  octomap::point3d         start;
   start.x() = uav_pos.x();
   start.y() = uav_pos.y();
   start.z() = uav_pos.z();
@@ -107,11 +107,23 @@ bool gotoCallback([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4:
   goal.y() = req.goal[1];
   goal.z() = req.goal[2];
 
-  auto path = planner.findPath(start, goal, octree_);
+  auto                          path = planner.findPath(start, goal, octree_);
+  mrs_msgs::TrajectoryReference traj;
+  traj.header.frame_id = map_frame;
+  traj.header.stamp    = ros::Time::now();
+  traj.fly_now         = false;
 
   for (auto& p : path) {
-    command_bv.addPoint(Eigen::Vector3d(p.x(), p.y(), p.z()));
+    mrs_msgs::Reference ref;
+    ref.position.x = p.x();
+    ref.position.y = p.y();
+    ref.position.z = p.z();
+    ref.heading    = 0;
+    traj.points.push_back(ref);
+    /* command_bv.addPoint(Eigen::Vector3d(p.x(), p.y(), p.z())); */
   }
+  command_bv.addPoint(Eigen::Vector3d(goal.x(), goal.y(), goal.z()));
+  command_bv.addTrajectory(traj);
   command_bv.publish();
 
   res.success = true;
@@ -129,7 +141,6 @@ int main(int argc, char** argv) {
 
   param_loader.loadParam("euclidean_distance_cutoff", euclidean_distance_cutoff);
   param_loader.loadParam("safe_obstacle_distance", safe_obstacle_distance);
-  param_loader.loadParam("navigation_tolerance", navigation_tolerance);
   param_loader.loadParam("explore_unknown_threshold", explore_unknown_threshold);
   param_loader.loadParam("distance_penalty", distance_penalty);
   param_loader.loadParam("greedy_penalty", greedy_penalty);
@@ -151,7 +162,6 @@ int main(int argc, char** argv) {
   planner_bv = mrs_lib::BatchVisualizer(nh_, "visualize_planner", "uav1/gps_origin");
   planner_bv.setPointsScale(points_scale);
   planner_bv.setLinesScale(lines_scale);
-
 
   goto_server = nh_.advertiseService("goto_in", &gotoCallback);
 
