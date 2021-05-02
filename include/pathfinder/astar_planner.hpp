@@ -51,16 +51,17 @@ class AstarPlanner {
 
 public:
 #ifndef VISUALIZE
-  AstarPlanner(double safe_obstacle_distance, double clearing_radius, double euclidean_distance_cutoff, bool unknown_is_occupied);
+  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, bool unknown_is_occupied);
 #endif
 #ifdef VISUALIZE
-  AstarPlanner(double safe_obstacle_distance, double clearing_radius, double euclidean_distance_cutoff, bool unknown_is_occupied, mrs_lib::BatchVisualizer &bv);
+  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, bool unknown_is_occupied,
+               mrs_lib::BatchVisualizer &bv);
 #endif
 
 private:
   double safe_obstacle_distance;
-  double clearing_radius;
   double euclidean_distance_cutoff;
+  double planning_tree_resolution;
   bool   unknown_is_occupied;
 
 #ifdef VISUALIZE
@@ -79,17 +80,6 @@ public:
    * @return vector of 3D points ordered from start to goal. Returns empty vector if a path does not exist
    */
   std::vector<octomap::point3d> findPath(const octomap::point3d &start, const octomap::point3d &goal, std::shared_ptr<octomap::OcTree> mapping_tree);
-
-  /**
-   * @brief Find the path from @start key to @goal key
-   *
-   * @param start key
-   * @param goal key
-   * @param mapping_tree current octomap of the world
-   *
-   * @return vector of 3D points ordered from start to goal. Returns empty vector if a path does not exist
-   */
-  std::vector<octomap::point3d> findPath(const octomap::OcTreeKey &start, const octomap::OcTreeKey &goal, std::shared_ptr<octomap::OcTree> mapping_tree);
 
 private:
   const std::vector<octomap::point3d> EXPANSION_DIRECTIONS = {{0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}};
@@ -192,21 +182,30 @@ private:
    * Perform an Euclidean distance transform, clear area around starting position and crop low altitudes
    *
    * @param tree output of mapping node
-   * @param start key of the start cell
+   * @param start UAV coords
+   * @param resolution voxel size of the planning tree
    *
    * @return octree suitable for planning
    */
-  octomap::OcTree createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::OcTreeKey &start);
+  octomap::OcTree createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start, double resolution);
 
 #ifdef VISUALIZE
   /**
-   * @brief Use the MRS Batch Visualizer to draw the octree
+   * @brief Use the MRS Batch Visualizer to draw the full octree
    *
    * @param tree octree to be visualized
    * @param show_unoccupied true to also draw unoccupied cells
    */
   void visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied);
-  
+
+  /**
+   * @brief Use the MRS Batch Visualizer to draw the octree in a symbolic manner. Brighter points represent larger depths
+   *
+   * @param tree
+   * @param show_unoccupied
+   */
+  void visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupied);
+
   /**
    * @brief Use the MRS Batch Visualizer to draw all open and closed expansions
    *

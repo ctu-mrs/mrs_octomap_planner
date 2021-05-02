@@ -395,7 +395,7 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 2.299999952316284
+        Max Value: 4.900000095367432
         Min Value: 0.699999988079071
         Value: true
       Axis: Z
@@ -450,10 +450,22 @@ Visualization Manager:
       Value: true
     - Class: rviz/MarkerArray
       Enabled: true
-      Marker Topic: /pathfinder/visualize
-      Name: BatchVisualizer
+      Marker Topic: /pathfinder/visualize_command
+      Name: VisualizeCommand
       Namespaces:
-        {}
+        visualize_command_lines: true
+        visualize_command_points: true
+        visualize_command_triangles: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /pathfinder/visualize_planner
+      Name: VisualizePlanner
+      Namespaces:
+        visualize_planner_lines: true
+        visualize_planner_points: true
+        visualize_planner_triangles: true
       Queue Size: 100
       Value: true
   Enabled: true
@@ -484,7 +496,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/ThirdPersonFollower
-      Distance: 34.46072006225586
+      Distance: 10.903097152709961
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -492,17 +504,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: -5.584458351135254
-        Y: 33.77805709838867
-        Z: 1.4825268983840942
+        X: -3.7475385665893555
+        Y: 30.039865493774414
+        Z: 1.4825328588485718
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.7347953915596008
+      Pitch: 0.6297966837882996
       Target Frame: <Fixed Frame>
-      Yaw: 2.787726640701294
+      Yaw: 2.059513807296753
     Saved: ~
 Window Geometry:
   Displays:
