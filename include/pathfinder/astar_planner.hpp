@@ -86,7 +86,10 @@ public:
 
 private:
   const std::vector<octomap::point3d> EXPANSION_DIRECTIONS = {{0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}};
-
+  /* const std::vector<octomap::point3d> EXPANSION_DIRECTIONS = {{-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {-1, 0, -1}, {-1, 0, 0}, {-1, 0, 1}, {-1, 1, -1}, */
+  /*                                                             {-1, 1, 0},   {-1, 1, 1},  {0, -1, -1}, {0, -1, 0},  {0, -1, 1}, {0, 0, -1}, {0, 0, 1}, */
+  /*                                                             {0, 1, -1},   {0, 1, 0},   {0, 1, 1},   {1, -1, -1}, {1, -1, 0}, {1, -1, 1}, {1, 0, -1}, */
+  /*                                                             {1, 0, 0},    {1, 0, 1},   {1, 1, -1},  {1, 1, 0},   {1, 1, 1}}; */
   /**
    * @brief Compute the depth of a tree node at given key
    *
@@ -182,19 +185,20 @@ private:
 
   /**
    * @brief Create a modified tree suitable for collision-free path planning
-   * Perform an Euclidean distance transform, clear area around starting position and crop low altitudes
+   * Perform an Euclidean distance transform and inflates obstacles
+   * If the start position is inside an obstacle, returns also a tunnel for safe passage
    *
    * @param tree output of mapping node
    * @param start UAV coords
    * @param resolution voxel size of the planning tree
    *
-   * @return octree suitable for planning
+   * @return pair <octomap, coordinates of a safe tunnel into free cells>
    */
-  octomap::OcTree createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start, double resolution);
+  std::pair<octomap::OcTree, std::vector<octomap::point3d>> createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start, double resolution);
 
 #ifdef VISUALIZE
   /**
-   * @brief Use the MRS Batch Visualizer to draw the full octree
+   * @brief Use the MRS Batch Visualizer to draw the full octree using cubes
    *
    * @param tree octree to be visualized
    * @param show_unoccupied true to also draw unoccupied cells
@@ -202,7 +206,7 @@ private:
   void visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied);
 
   /**
-   * @brief Use the MRS Batch Visualizer to draw the octree in a symbolic manner. Brighter points represent larger depths
+   * @brief Use the MRS Batch Visualizer to draw the octree using points
    *
    * @param tree
    * @param show_unoccupied
