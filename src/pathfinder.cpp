@@ -37,6 +37,8 @@ double distance_penalty;
 double greedy_penalty;
 double planning_tree_resolution;
 double navigation_tolerance;
+double timeout_threshold;
+double max_waypoint_distance;
 bool   unknown_is_occupied;
 
 std::shared_ptr<octomap::OcTree> octree_;
@@ -67,10 +69,12 @@ double     timer_rate = 20.0;  // [Hz]
 ros::Timer action_timer;
 
 // planning
+int                           counter     = 0;
 bool                          initialized = false;
 std::atomic<state_t>          state       = IDLE;
 octomap::point3d              current_goal;
 octomap::point3d              final_goal;
+octomap::point3d              plan_from;
 std::vector<octomap::point3d> waypoint_buffer;
 
 
@@ -110,7 +114,10 @@ bool gotoCallback([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4:
   final_goal.x() = req.goal[0];
   final_goal.y() = req.goal[1];
   final_goal.z() = req.goal[2];
-  state          = PLANNING;
+
+  plan_from = uav_pos;
+
+  state = PLANNING;
   command_bv.addPoint(Eigen::Vector3d(final_goal.x(), final_goal.y(), final_goal.z()));
   command_bv.publish();
 
@@ -133,15 +140,16 @@ void actionRoutine([[maybe_unused]] const ros::TimerEvent& evt) {
     }
 
     case PLANNING: {
+      counter = 0;
       planner_bv.clearBuffers();
 
       pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(safe_obstacle_distance, euclidean_distance_cutoff, planning_tree_resolution, distance_penalty,
-                                                                  greedy_penalty, unknown_is_occupied, planner_bv);
+                                                                  greedy_penalty, timeout_threshold, max_waypoint_distance, unknown_is_occupied, planner_bv);
 
-      waypoint_buffer = planner.findPath(uav_pos, final_goal, octree_);
+      waypoint_buffer = planner.findPath(plan_from, final_goal, octree_);
       if (waypoint_buffer.size() < 2) {
         ROS_ERROR("[%s]: Path not found", ros::this_node::getName().c_str());
-        state = IDLE;
+        state = MOVING;
         break;
       }
       current_goal = waypoint_buffer.back();
@@ -170,13 +178,20 @@ void actionRoutine([[maybe_unused]] const ros::TimerEvent& evt) {
     }
 
     case MOVING: {
-      if ((uav_pos - current_goal).norm() <= navigation_tolerance) {
+      if ((uav_pos - final_goal).norm() <= navigation_tolerance) {
+        ROS_INFO("[%s]: Goal reached!", ros::this_node::getName().c_str());
         state = IDLE;
       }
+      if (counter > 50) {
+        ROS_WARN("[%s]: REPLAN", ros::this_node::getName().c_str());
+        plan_from = waypoint_buffer.back();
+        state     = PLANNING;
+      }
+      counter++;
       break;
     }
   }
-  ROS_INFO("[%s]: State: %s", ros::this_node::getName().c_str(), state_str[state].c_str());
+  /* ROS_INFO("[%s]: State: %s", ros::this_node::getName().c_str(), state_str[state].c_str()); */
 }
 //}
 
@@ -196,12 +211,14 @@ int main(int argc, char** argv) {
   param_loader.loadParam("points_scale", points_scale);
   param_loader.loadParam("lines_scale", lines_scale);
   param_loader.loadParam("navigation_tolerance", navigation_tolerance);
+  param_loader.loadParam("max_waypoint_distance", max_waypoint_distance);
+  param_loader.loadParam("timeout_threshold", timeout_threshold);
 
   action_timer = nh_.createTimer(ros::Duration(1.0 / timer_rate), &actionRoutine);
 
-  odom_subscriber      = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
-  octomap_subscriber   = nh_.subscribe("octomap_in", 1, &octomapCallback, ros::TransportHints().tcpNoDelay());
-  path_publisher= nh_.advertise<mrs_msgs::Path>("path_out", 1);
+  odom_subscriber    = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
+  octomap_subscriber = nh_.subscribe("octomap_in", 1, &octomapCallback, ros::TransportHints().tcpNoDelay());
+  path_publisher     = nh_.advertise<mrs_msgs::Path>("path_out", 1);
 
   // BatchVisualizer setup
   command_bv = mrs_lib::BatchVisualizer(nh_, "visualize_command", "uav1/gps_origin");
