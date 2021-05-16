@@ -5,6 +5,7 @@
     <remap from="~odom_in" to="/$(arg uav)/odometry/odom_main" />
     <remap from="~octomap_in" to="/$(arg uav)/octomap_server/octomap_full" />
     <remap from="~goto_in" to="/$(arg uav)/pathfinder/goto" />
+    <remap from="~path_out" to="/$(arg uav)/trajectory_generation/path" />
   </node>
 
 </launch>

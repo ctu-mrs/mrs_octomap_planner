@@ -194,7 +194,8 @@ private:
    *
    * @return pair <octomap, coordinates of a safe tunnel into free cells>
    */
-  std::pair<octomap::OcTree, std::vector<octomap::point3d>> createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start, double resolution);
+  std::pair<octomap::OcTree, std::vector<octomap::point3d>> createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start,
+                                                                               double resolution);
 
 #ifdef VISUALIZE
   /**

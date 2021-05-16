@@ -1,5 +1,4 @@
 // some ros includes
-#include "mrs_msgs/TrajectoryReference.h"
 #include <ros/ros.h>
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
@@ -18,16 +17,26 @@
 #include <mrs_lib/param_loader.h>
 
 #include <mrs_msgs/Vec4.h>
+#include <mrs_msgs/Path.h>
 
 #include <pathfinder/astar_planner.hpp>
+
+enum state_t
+{
+  IDLE = 0,
+  PLANNING,
+  MOVING
+};
+
+std::string state_str[] = {"IDLE", "PLANNING", "MOVING"};
 
 // params
 double euclidean_distance_cutoff;
 double safe_obstacle_distance;
-double explore_unknown_threshold;
 double distance_penalty;
 double greedy_penalty;
 double planning_tree_resolution;
+double navigation_tolerance;
 bool   unknown_is_occupied;
 
 std::shared_ptr<octomap::OcTree> octree_;
@@ -38,7 +47,7 @@ double points_scale;
 double lines_scale;
 
 // uav odometry
-Eigen::Vector4d    uav_pos;  // [m]
+octomap::point3d   uav_pos;  // [m]
 Eigen::Quaterniond uav_ori;
 double             uav_heading;
 
@@ -51,16 +60,19 @@ ros::Subscriber    octomap_subscriber;
 ros::ServiceServer goto_server;
 
 // publishers
-ros::Publisher grid_pub;
+ros::Publisher path_publisher;
 
 // timers
-ros::Timer map_timer;
+double     timer_rate = 20.0;  // [Hz]
+ros::Timer action_timer;
 
-/* timerCallback //{ */
-void timerCallback([[maybe_unused]] const ros::TimerEvent& evt) {
-  // do stuff
-}
-//}
+// planning
+bool                          initialized = false;
+std::atomic<state_t>          state       = IDLE;
+octomap::point3d              current_goal;
+octomap::point3d              final_goal;
+std::vector<octomap::point3d> waypoint_buffer;
+
 
 /* odomCallback //{ */
 void odomCallback(const nav_msgs::Odometry& odom_in) {
@@ -73,7 +85,7 @@ void odomCallback(const nav_msgs::Odometry& odom_in) {
   uav_ori.y() = odom_in.pose.pose.orientation.y;
   uav_ori.z() = odom_in.pose.pose.orientation.z;
   mrs_lib::AttitudeConverter ac(odom_in.pose.pose.orientation);
-  uav_pos.w() = ac.getHeading();
+  uav_heading = ac.getHeading();
 }
 //}
 
@@ -95,40 +107,76 @@ bool gotoCallback([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4:
 
   command_bv.clearBuffers();
 
-  pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(safe_obstacle_distance, euclidean_distance_cutoff, planning_tree_resolution, distance_penalty,
-                                                              greedy_penalty, unknown_is_occupied, planner_bv);
-  octomap::point3d         start;
-  start.x() = uav_pos.x();
-  start.y() = uav_pos.y();
-  start.z() = uav_pos.z();
-
-  octomap::point3d goal;
-  goal.x() = req.goal[0];
-  goal.y() = req.goal[1];
-  goal.z() = req.goal[2];
-
-  auto                          path = planner.findPath(start, goal, octree_);
-  mrs_msgs::TrajectoryReference traj;
-  traj.header.frame_id = map_frame;
-  traj.header.stamp    = ros::Time::now();
-  traj.fly_now         = false;
-
-  for (auto& p : path) {
-    mrs_msgs::Reference ref;
-    ref.position.x = p.x();
-    ref.position.y = p.y();
-    ref.position.z = p.z();
-    ref.heading    = 0;
-    traj.points.push_back(ref);
-    /* command_bv.addPoint(Eigen::Vector3d(p.x(), p.y(), p.z())); */
-  }
-  command_bv.addPoint(Eigen::Vector3d(goal.x(), goal.y(), goal.z()));
-  command_bv.addTrajectory(traj);
+  final_goal.x() = req.goal[0];
+  final_goal.y() = req.goal[1];
+  final_goal.z() = req.goal[2];
+  state          = PLANNING;
+  command_bv.addPoint(Eigen::Vector3d(final_goal.x(), final_goal.y(), final_goal.z()));
   command_bv.publish();
 
   res.success = true;
-  res.message = "Success";
+  res.message = "Goal set";
   return true;
+}
+//}
+
+/* actionRoutine //{ */
+void actionRoutine([[maybe_unused]] const ros::TimerEvent& evt) {
+  if (!initialized) {
+    return;
+  }
+
+  switch (state) {
+
+    case IDLE: {
+      break;
+    }
+
+    case PLANNING: {
+      planner_bv.clearBuffers();
+
+      pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(safe_obstacle_distance, euclidean_distance_cutoff, planning_tree_resolution, distance_penalty,
+                                                                  greedy_penalty, unknown_is_occupied, planner_bv);
+
+      waypoint_buffer = planner.findPath(uav_pos, final_goal, octree_);
+      if (waypoint_buffer.size() < 2) {
+        ROS_ERROR("[%s]: Path not found", ros::this_node::getName().c_str());
+        state = IDLE;
+        break;
+      }
+      current_goal = waypoint_buffer.back();
+
+      mrs_msgs::Path path_msg;
+      path_msg.header.frame_id = map_frame;
+      path_msg.header.stamp    = ros::Time::now();
+      path_msg.fly_now         = true;
+
+      for (auto& w : waypoint_buffer) {
+        mrs_msgs::Reference ref;
+        ref.position.x = w.x();
+        ref.position.y = w.y();
+        ref.position.z = w.z();
+        ref.heading    = 0;
+        path_msg.points.push_back(ref);
+      }
+      /* planner_bv.addPoint(Eigen::Vector3d(current_goal.x(), current_goal.y(), current_goal.z())); */
+      /* planner_bv.addTrajectory(path_msg); */
+      /* planner_bv.publish(); */
+
+      path_publisher.publish(path_msg);
+
+      state = MOVING;
+      break;
+    }
+
+    case MOVING: {
+      if ((uav_pos - current_goal).norm() <= navigation_tolerance) {
+        state = IDLE;
+      }
+      break;
+    }
+  }
+  ROS_INFO("[%s]: State: %s", ros::this_node::getName().c_str(), state_str[state].c_str());
 }
 //}
 
@@ -141,18 +189,19 @@ int main(int argc, char** argv) {
 
   param_loader.loadParam("euclidean_distance_cutoff", euclidean_distance_cutoff);
   param_loader.loadParam("safe_obstacle_distance", safe_obstacle_distance);
-  param_loader.loadParam("explore_unknown_threshold", explore_unknown_threshold);
   param_loader.loadParam("distance_penalty", distance_penalty);
   param_loader.loadParam("greedy_penalty", greedy_penalty);
   param_loader.loadParam("planning_tree_resolution", planning_tree_resolution);
   param_loader.loadParam("unknown_is_occupied", unknown_is_occupied);
   param_loader.loadParam("points_scale", points_scale);
   param_loader.loadParam("lines_scale", lines_scale);
+  param_loader.loadParam("navigation_tolerance", navigation_tolerance);
 
-  /* map_timer = nh_.createTimer(ros::Duration(2), &timerCallback); */
+  action_timer = nh_.createTimer(ros::Duration(1.0 / timer_rate), &actionRoutine);
 
-  odom_subscriber    = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
-  octomap_subscriber = nh_.subscribe("octomap_in", 1, &octomapCallback, ros::TransportHints().tcpNoDelay());
+  odom_subscriber      = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
+  octomap_subscriber   = nh_.subscribe("octomap_in", 1, &octomapCallback, ros::TransportHints().tcpNoDelay());
+  path_publisher= nh_.advertise<mrs_msgs::Path>("path_out", 1);
 
   // BatchVisualizer setup
   command_bv = mrs_lib::BatchVisualizer(nh_, "visualize_command", "uav1/gps_origin");
@@ -167,6 +216,7 @@ int main(int argc, char** argv) {
 
 
   ROS_INFO("[%s]: Initialized!", ros::this_node::getName().c_str());
+  initialized = true;
   ros::spin();
 
   return 0;

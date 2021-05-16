@@ -12,14 +12,34 @@ windows:
       panes:
         - waitForRos; roslaunch mrs_simulation simulation.launch world_name:=forest gui:=true
         - waitForOdometry; gz camera -c gzclient_camera -f uav1; history -s gz camera -c gzclient_camera -f uav1
-  - status:
-      layout: tiled
-      panes:
-        - waitForSimulation; roslaunch mrs_uav_status status.launch
   - spawn:
       layout: tiled
       panes:
         - waitForSimulation; rosservice call /mrs_drone_spawner/spawn "1 $UAV_TYPE --enable-rangefinder --enable-rplidar"
+  - status:
+      layout: tiled
+      panes:
+        - waitForSimulation; roslaunch mrs_uav_status status.launch
+  - control:
+      layout: tiled
+      panes:
+        - waitForOdometry; roslaunch mrs_uav_general core.launch config_trajectory_generation:=$(rospack find pathfinder)/config/trajectory_generation.yaml
+  - bumper:
+      layout: tiled
+      panes:
+        - waitForOdometry; roslaunch mrs_bumper bumper.launch
+  - takeoff:
+      layout: tiled
+      panes:
+        - waitForSimulation; roslaunch mrs_uav_general automatic_start.launch
+        - 'waitForControl;
+          rosservice call /$UAV_NAME/mavros/cmd/arming 1;
+          sleep 2;
+          rosservice call /$UAV_NAME/mavros/set_mode 0 offboard'
+  # - trajectory_generation:
+  #     layout: tiled
+  #     panes:
+  #       - waitForOdometry; roslaunch mrs_uav_trajectory_generation trajectory_generation.launch
   - mapping:
       layout: tiled
       panes:
@@ -29,22 +49,6 @@ windows:
       panes:
         - waitForOdometry; roslaunch pathfinder pathfinder.launch
         - 'history -s rosservice call /$UAV_NAME/pathfinder/goto \"goal: \[0.0, 10.0, 1.5, 0.0\]\"'
-  - bumper:
-      layout: tiled
-      panes:
-        - waitForOdometry; roslaunch mrs_bumper bumper.launch
-  - control:
-      layout: tiled
-      panes:
-        - waitForOdometry; roslaunch mrs_uav_general core.launch
-  - takeoff:
-      layout: tiled
-      panes:
-        - waitForSimulation; roslaunch mrs_uav_general automatic_start.launch
-        - 'waitForControl;
-          rosservice call /$UAV_NAME/mavros/cmd/arming 1;
-          sleep 2;
-          rosservice call /$UAV_NAME/mavros/set_mode 0 offboard'
   - goto:
       layout: tiled
       panes:
