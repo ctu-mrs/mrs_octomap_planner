@@ -92,14 +92,6 @@ std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::point3d &sta
     ROS_INFO("[%s]: Generated a replacement goal: [%.2f, %.2f, %.2f]", ros::this_node::getName().c_str(), map_goal.x(), map_goal.y(), map_goal.z());
   }
 
-#ifdef VISUALIZE
-  /* bv.clearBuffers(); */
-  /* visualizeTreeCubes(tree, true); */
-  /* /1* /2* visualizeTreePoints(tree, true); *2/ *1/ */
-  /* bv.publish(); */
-  /* /1* return std::vector<octomap::point3d>(); *1/ */
-#endif
-
   std::set<Node, CostComparator>               open;
   std::unordered_set<Node, HashFunction>       closed;
   std::unordered_map<Node, Node, HashFunction> parent_map;  // first = child, second = parent
@@ -140,9 +132,9 @@ std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::point3d &sta
     }
 
 #ifdef VISUALIZE
-    /* bv.clearBuffers(); */
-    /* visualizeExpansions(open, closed, tree); */
-    /* bv.publish(); */
+    bv.clearBuffers();
+    visualizeExpansions(open, closed, tree);
+    bv.publish();
 #endif
 
     auto current = *open.begin();

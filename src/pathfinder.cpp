@@ -1,4 +1,5 @@
 // some ros includes
+#include "ros/duration.h"
 #include <ros/ros.h>
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
@@ -18,6 +19,7 @@
 
 #include <mrs_msgs/Vec4.h>
 #include <mrs_msgs/Path.h>
+#include <mrs_msgs/TrajectoryReference.h>
 
 #include <pathfinder/astar_planner.hpp>
 
@@ -36,9 +38,9 @@ double safe_obstacle_distance;
 double distance_penalty;
 double greedy_penalty;
 double planning_tree_resolution;
-double navigation_tolerance;
 double timeout_threshold;
 double max_waypoint_distance;
+double endpoint_tolerance;
 bool   unknown_is_occupied;
 
 std::shared_ptr<octomap::OcTree> octree_;
@@ -59,6 +61,7 @@ mrs_lib::BatchVisualizer planner_bv;
 // subscribers
 ros::Subscriber    odom_subscriber;
 ros::Subscriber    octomap_subscriber;
+ros::Subscriber    trajectory_subscriber;
 ros::ServiceServer goto_server;
 
 // publishers
@@ -69,13 +72,15 @@ double     timer_rate = 20.0;  // [Hz]
 ros::Timer action_timer;
 
 // planning
-int                           counter     = 0;
-bool                          initialized = false;
-std::atomic<state_t>          state       = IDLE;
+int                           replanning_without_motion = 0;
+bool                          initialized               = false;
+std::atomic<state_t>          state                     = IDLE;
 octomap::point3d              current_goal;
 octomap::point3d              final_goal;
 octomap::point3d              plan_from;
 std::vector<octomap::point3d> waypoint_buffer;
+bool                          got_trajectory_generator_output = false;
+ros::Time                     replanning_timepoint;
 
 
 /* odomCallback //{ */
@@ -103,6 +108,18 @@ void octomapCallback(const octomap_msgs::OctomapPtr octomap_in) {
   } else {
     octree_ = std::shared_ptr<octomap::OcTree>(dynamic_cast<octomap::OcTree*>(tree_ptr));
   }
+}
+//}
+
+/* trajectoryCallback //{ */
+void trajectoryCallback(const mrs_msgs::TrajectoryReference& trajectory) {
+  got_trajectory_generator_output = true;
+  plan_from.x()                   = trajectory.points.back().position.x;
+  plan_from.y()                   = trajectory.points.back().position.y;
+  plan_from.z()                   = trajectory.points.back().position.z;
+  replanning_timepoint            = ros::Time::now() + ros::Duration(trajectory.dt * trajectory.points.size()) - ros::Duration(timeout_threshold);
+  ROS_INFO("[%s]: Trajectory processed. Replanning in %.2f seconds", ros::this_node::getName().c_str(),
+           replanning_timepoint.toSec() - ros::Time::now().toSec());
 }
 //}
 
@@ -140,7 +157,7 @@ void actionRoutine([[maybe_unused]] const ros::TimerEvent& evt) {
     }
 
     case PLANNING: {
-      counter = 0;
+      got_trajectory_generator_output = false;
       planner_bv.clearBuffers();
 
       pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(safe_obstacle_distance, euclidean_distance_cutoff, planning_tree_resolution, distance_penalty,
@@ -149,7 +166,13 @@ void actionRoutine([[maybe_unused]] const ros::TimerEvent& evt) {
       waypoint_buffer = planner.findPath(plan_from, final_goal, octree_);
       if (waypoint_buffer.size() < 2) {
         ROS_ERROR("[%s]: Path not found", ros::this_node::getName().c_str());
-        state = MOVING;
+        replanning_without_motion++;
+        if (replanning_without_motion > 10) {
+          ROS_ERROR("[%s]: Planning failed, UAV is stuck!", ros::this_node::getName().c_str());
+          state = IDLE;
+          break;
+        }
+        state = PLANNING;
         break;
       }
       current_goal = waypoint_buffer.back();
@@ -172,26 +195,22 @@ void actionRoutine([[maybe_unused]] const ros::TimerEvent& evt) {
       /* planner_bv.publish(); */
 
       path_publisher.publish(path_msg);
-
       state = MOVING;
       break;
     }
 
     case MOVING: {
-      if ((uav_pos - final_goal).norm() <= navigation_tolerance) {
-        ROS_INFO("[%s]: Goal reached!", ros::this_node::getName().c_str());
+      replanning_without_motion = 0;
+      if ((uav_pos - final_goal).norm() < endpoint_tolerance) {
+        ROS_INFO("[%s]: Final goal reached!", ros::this_node::getName().c_str());
         state = IDLE;
       }
-      if (counter > 50) {
-        ROS_WARN("[%s]: REPLAN", ros::this_node::getName().c_str());
-        plan_from = waypoint_buffer.back();
-        state     = PLANNING;
+      if (got_trajectory_generator_output && replanning_timepoint.toSec() - ros::Time::now().toSec() < 0) {
+        state = PLANNING;
       }
-      counter++;
       break;
     }
   }
-  /* ROS_INFO("[%s]: State: %s", ros::this_node::getName().c_str(), state_str[state].c_str()); */
 }
 //}
 
@@ -209,16 +228,17 @@ int main(int argc, char** argv) {
   param_loader.loadParam("planning_tree_resolution", planning_tree_resolution);
   param_loader.loadParam("unknown_is_occupied", unknown_is_occupied);
   param_loader.loadParam("points_scale", points_scale);
+  param_loader.loadParam("endpoint_tolerance", endpoint_tolerance);
   param_loader.loadParam("lines_scale", lines_scale);
-  param_loader.loadParam("navigation_tolerance", navigation_tolerance);
   param_loader.loadParam("max_waypoint_distance", max_waypoint_distance);
   param_loader.loadParam("timeout_threshold", timeout_threshold);
 
   action_timer = nh_.createTimer(ros::Duration(1.0 / timer_rate), &actionRoutine);
 
-  odom_subscriber    = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
-  octomap_subscriber = nh_.subscribe("octomap_in", 1, &octomapCallback, ros::TransportHints().tcpNoDelay());
-  path_publisher     = nh_.advertise<mrs_msgs::Path>("path_out", 1);
+  odom_subscriber       = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
+  octomap_subscriber    = nh_.subscribe("octomap_in", 1, &octomapCallback, ros::TransportHints().tcpNoDelay());
+  trajectory_subscriber = nh_.subscribe("trajectory_in", 1, &trajectoryCallback, ros::TransportHints().tcpNoDelay());
+  path_publisher        = nh_.advertise<mrs_msgs::Path>("path_out", 1);
 
   // BatchVisualizer setup
   command_bv = mrs_lib::BatchVisualizer(nh_, "visualize_command", "uav1/gps_origin");
