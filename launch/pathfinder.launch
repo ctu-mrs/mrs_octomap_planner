@@ -5,8 +5,9 @@
     <remap from="~odom_in" to="/$(arg uav)/odometry/odom_main" />
     <remap from="~octomap_in" to="/$(arg uav)/octomap_server/octomap_full" />
     <remap from="~goto_in" to="/$(arg uav)/pathfinder/goto" />
-    <remap from="~trajectory_in" to="/$(arg uav)/trajectory_generation/processed_trajectory" />
-    <remap from="~path_out" to="/$(arg uav)/trajectory_generation/path" />
+    <remap from="~mpc_prediction_in" to="/$(arg uav)/control_manager/mpc_tracker/prediction_full_state" />
+    <remap from="~trajectory_generation_out" to="/$(arg uav)/trajectory_generation/get_path" />
+    <remap from="~trajectory_reference_out" to="/$(arg uav)/control_manager/trajectory_reference" />
   </node>
 
 </launch>

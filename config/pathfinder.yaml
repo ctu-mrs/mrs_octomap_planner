@@ -3,11 +3,14 @@ euclidean_distance_cutoff: 1.2 # [m]
 safe_obstacle_distance: 1.0 # [m]
 distance_penalty: 0.5
 greedy_penalty: 1.0
-endpoint_tolerance: 0.3 # [m]
-planning_tree_resolution: 0.4 # [m] voxel edge size
-timeout_threshold: 2.0 # [s]
+endpoint_tolerance: 0.7 # [m]
+planning_tree_resolution: 0.2 # [m] voxel edge size
+timeout_threshold: 2.3 # [s]
+time_for_trajectory_generator: 0.7 # [s]
 max_waypoint_distance: 4.0 # [m]
+min_altitude: 0.9 # [m]
 unknown_is_occupied: false
+replan_after: 5.0 # [m]
 
 # visualization
 points_scale: 0.22

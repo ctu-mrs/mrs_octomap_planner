@@ -1,8 +1,6 @@
 #ifndef PATHFINDER_ASTAR_PLANNER_H
 #define PATHFINDER_ASTAR_PLANNER_H
 
-#define VISUALIZE
-
 #include <memory>
 #include <set>
 #include <unordered_map>
@@ -11,10 +9,7 @@
 #include <octomap/octomap.h>
 #include <dynamicEDT3D/dynamicEDTOctomap.h>
 
-#ifdef VISUALIZE
 #include <mrs_lib/batch_visualizer.h>
-#endif
-
 
 namespace pathfinder
 {
@@ -55,14 +50,8 @@ struct LeafComparator
 class AstarPlanner {
 
 public:
-#ifndef VISUALIZE
   AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty, double greedy_penalty,
-               double timeout_threshold, double max_waypoint_distance, bool unknown_is_occupied);
-#endif
-#ifdef VISUALIZE
-  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty, double greedy_penalty,
-               double timeout_threshold, double max_waypoint_distance, bool unknown_is_occupied, mrs_lib::BatchVisualizer &bv);
-#endif
+               double timeout_threshold, double max_waypoint_distance, double min_altitude, bool unknown_is_occupied, mrs_lib::BatchVisualizer &bv);
 
 private:
   double safe_obstacle_distance;
@@ -72,18 +61,16 @@ private:
   double greedy_penalty;
   double timeout_threshold;
   double max_waypoint_distance;
+  double min_altitude;
   bool   unknown_is_occupied;
 
-#ifdef VISUALIZE
   mrs_lib::BatchVisualizer bv;
-#endif
 
 
 public:
   std::vector<octomap::point3d> findPath(const octomap::point3d &start, const octomap::point3d &goal, std::shared_ptr<octomap::OcTree> mapping_tree);
 
 private:
-  /* const std::vector<octomap::point3d> EXPANSION_DIRECTIONS = {{0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}}; */
   const std::vector<octomap::point3d> EXPANSION_DIRECTIONS = {{-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {-1, 0, -1}, {-1, 0, 0}, {-1, 0, 1}, {-1, 1, -1},
                                                               {-1, 1, 0},   {-1, 1, 1},  {0, -1, -1}, {0, -1, 0},  {0, -1, 1}, {0, 0, -1}, {0, 0, 1},
                                                               {0, 1, -1},   {0, 1, 0},   {0, 1, 1},   {1, -1, -1}, {1, -1, 0}, {1, -1, 1}, {1, 0, -1},
@@ -114,14 +101,14 @@ private:
   octomap::point3d generateTemporaryGoal(const octomap::point3d &start, const octomap::point3d &goal, octomap::OcTree &tree);
 
   std::vector<octomap::point3d> postprocessPath(const std::vector<octomap::point3d> &waypoints, octomap::OcTree &tree);
+  
+  std::vector<octomap::point3d> prepareOutputPath(const std::vector<octomap::OcTreeKey> &keys, octomap::OcTree &tree);
 
-#ifdef VISUALIZE
   void visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied);
 
   void visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupied);
 
   void visualizeExpansions(std::set<Node, CostComparator> open, std::unordered_set<Node, HashFunction> closed, octomap::OcTree &tree);
-#endif
 };
 
 }  // namespace pathfinder

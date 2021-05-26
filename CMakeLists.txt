@@ -22,7 +22,7 @@ catkin_package(
   LIBRARIES astar_planner
   )
 
-set(CMAKE_CXX_FLAGS "-std=c++1z")
+set(CMAKE_CXX_FLAGS "-std=c++1z -O3")
 
 include_directories(
   include

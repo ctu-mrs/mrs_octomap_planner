@@ -1,5 +1,4 @@
 // some ros includes
-#include "ros/duration.h"
 #include <ros/ros.h>
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
@@ -18,8 +17,10 @@
 #include <mrs_lib/param_loader.h>
 
 #include <mrs_msgs/Vec4.h>
-#include <mrs_msgs/Path.h>
+#include <mrs_msgs/GetPathSrv.h>
 #include <mrs_msgs/TrajectoryReference.h>
+#include <mrs_msgs/MpcPredictionFullState.h>
+#include <mrs_msgs/TrajectoryReferenceSrv.h>
 
 #include <pathfinder/astar_planner.hpp>
 
@@ -39,8 +40,11 @@ double distance_penalty;
 double greedy_penalty;
 double planning_tree_resolution;
 double timeout_threshold;
+double time_for_trajectory_generator;
 double max_waypoint_distance;
 double endpoint_tolerance;
+double min_altitude;
+double replan_after;
 bool   unknown_is_occupied;
 
 std::shared_ptr<octomap::OcTree> octree_;
@@ -55,33 +59,62 @@ octomap::point3d   uav_pos;  // [m]
 Eigen::Quaterniond uav_ori;
 double             uav_heading;
 
-mrs_lib::BatchVisualizer command_bv;
+mrs_lib::BatchVisualizer input_bv;
 mrs_lib::BatchVisualizer planner_bv;
+mrs_lib::BatchVisualizer processed_bv;
 
 // subscribers
 ros::Subscriber    odom_subscriber;
 ros::Subscriber    octomap_subscriber;
-ros::Subscriber    trajectory_subscriber;
+ros::Subscriber    mpc_prediction_subscriber;
 ros::ServiceServer goto_server;
 
-// publishers
-ros::Publisher path_publisher;
+// service client
+ros::ServiceClient trajectory_generation_client;
+ros::ServiceClient trajectory_reference_client;
 
 // timers
 double     timer_rate = 20.0;  // [Hz]
 ros::Timer action_timer;
 
 // planning
-int                           replanning_without_motion = 0;
-bool                          initialized               = false;
-std::atomic<state_t>          state                     = IDLE;
-octomap::point3d              current_goal;
-octomap::point3d              final_goal;
-octomap::point3d              plan_from;
-std::vector<octomap::point3d> waypoint_buffer;
-bool                          got_trajectory_generator_output = false;
-ros::Time                     replanning_timepoint;
+int                  replanning_without_motion = 0;
+bool                 initialized               = false;
+std::atomic<state_t> state                     = IDLE;
+octomap::point3d     user_defined_goal;
+octomap::point3d     internal_goal;
+octomap::point3d     plan_from;
 
+bool             set_timepoints = false;
+ros::Time        replanning_start_timepoint;
+ros::Time        replanning_end_timepoint;
+octomap::point3d replanning_point;
+
+/* setReplanningPoint //{ */
+void setReplanningPoint(mrs_msgs::TrajectoryReference traj) {
+  replanning_point.x() = traj.points.back().position.x;
+  replanning_point.y() = traj.points.back().position.y;
+  replanning_point.z() = traj.points.back().position.z;
+  /* double dist          = 0.0; */
+  /* for (size_t i = 1; i < traj.points.size(); i++) { */
+  /*   Eigen::Vector3d p0(traj.points[i - 1].position.x, traj.points[i - 1].position.y, traj.points[i - 1].position.z); */
+  /*   Eigen::Vector3d p1(traj.points[i].position.x, traj.points[i].position.y, traj.points[i].position.z); */
+  /*   dist += (p0 - p1).norm(); */
+  /*   if (dist >= replan_after) { */
+  /*     break; */
+  /*   } */
+  /*   replanning_point.x() = traj.points[i].position.x; */
+  /*   replanning_point.y() = traj.points[i].position.y; */
+  /*   replanning_point.z() = traj.points[i].position.z; */
+  /* } */
+  mrs_lib::geometry::Cuboid c(Eigen::Vector3d(replanning_point.x(), replanning_point.y(), replanning_point.z()), Eigen::Vector3d(0.4, 0.4, 0.4),
+                              Eigen::Quaterniond::Identity());
+  input_bv.clearBuffers();
+  input_bv.addPoint(Eigen::Vector3d(user_defined_goal.x(), user_defined_goal.y(), user_defined_goal.z()), 0, 1, 0, 1);
+  input_bv.addCuboid(c, 0.5, 1.0, 1.0, 0.8, true);
+  input_bv.publish();
+}
+//}
 
 /* odomCallback //{ */
 void odomCallback(const nav_msgs::Odometry& odom_in) {
@@ -111,32 +144,43 @@ void octomapCallback(const octomap_msgs::OctomapPtr octomap_in) {
 }
 //}
 
-/* trajectoryCallback //{ */
-void trajectoryCallback(const mrs_msgs::TrajectoryReference& trajectory) {
-  got_trajectory_generator_output = true;
-  plan_from.x()                   = trajectory.points.back().position.x;
-  plan_from.y()                   = trajectory.points.back().position.y;
-  plan_from.z()                   = trajectory.points.back().position.z;
-  replanning_timepoint            = ros::Time::now() + ros::Duration(trajectory.dt * trajectory.points.size()) - ros::Duration(timeout_threshold);
-  ROS_INFO("[%s]: Trajectory processed. Replanning in %.2f seconds", ros::this_node::getName().c_str(),
-           replanning_timepoint.toSec() - ros::Time::now().toSec());
+/* mpcPredictionCallback //{ */
+void mpcPredictionCallback(const mrs_msgs::MpcPredictionFullState& prediction) {
+  ROS_INFO_ONCE("[%s]: Getting MPC Tracker output", ros::this_node::getName().c_str());
+  if (set_timepoints) {
+
+    for (size_t i = 0; i < prediction.position.size(); i++) {
+      octomap::point3d p;
+      p.x() = prediction.position[i].x;
+      p.y() = prediction.position[i].y;
+      p.z() = prediction.position[i].z;
+
+      if ((p - replanning_point).norm() < 0.08) {
+        replanning_end_timepoint   = prediction.stamps[i];
+        replanning_start_timepoint = replanning_end_timepoint - ros::Duration(timeout_threshold + time_for_trajectory_generator);
+        ROS_INFO("[%s]: Replanning will start in %.3f seconds!", ros::this_node::getName().c_str(), (replanning_start_timepoint - ros::Time::now()).toSec());
+        set_timepoints = false;
+        break;
+      }
+    }
+  }
 }
 //}
 
 /* gotoCallback //{ */
 bool gotoCallback([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
 
-  command_bv.clearBuffers();
+  input_bv.clearBuffers();
 
-  final_goal.x() = req.goal[0];
-  final_goal.y() = req.goal[1];
-  final_goal.z() = req.goal[2];
+  user_defined_goal.x() = req.goal[0];
+  user_defined_goal.y() = req.goal[1];
+  user_defined_goal.z() = req.goal[2];
 
   plan_from = uav_pos;
 
   state = PLANNING;
-  command_bv.addPoint(Eigen::Vector3d(final_goal.x(), final_goal.y(), final_goal.z()));
-  command_bv.publish();
+  input_bv.addPoint(Eigen::Vector3d(user_defined_goal.x(), user_defined_goal.y(), user_defined_goal.z()));
+  input_bv.publish();
 
   res.success = true;
   res.message = "Goal set";
@@ -157,14 +201,12 @@ void actionRoutine([[maybe_unused]] const ros::TimerEvent& evt) {
     }
 
     case PLANNING: {
-      got_trajectory_generator_output = false;
-      planner_bv.clearBuffers();
+      pathfinder::AstarPlanner planner =
+          pathfinder::AstarPlanner(safe_obstacle_distance, euclidean_distance_cutoff, planning_tree_resolution, distance_penalty, greedy_penalty,
+                                   timeout_threshold, max_waypoint_distance, min_altitude, unknown_is_occupied, planner_bv);
 
-      pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(safe_obstacle_distance, euclidean_distance_cutoff, planning_tree_resolution, distance_penalty,
-                                                                  greedy_penalty, timeout_threshold, max_waypoint_distance, unknown_is_occupied, planner_bv);
-
-      waypoint_buffer = planner.findPath(plan_from, final_goal, octree_);
-      if (waypoint_buffer.size() < 2) {
+      auto waypoints = planner.findPath(plan_from, user_defined_goal, octree_);
+      if (waypoints.size() < 2) {
         ROS_ERROR("[%s]: Path not found", ros::this_node::getName().c_str());
         replanning_without_motion++;
         if (replanning_without_motion > 10) {
@@ -175,39 +217,75 @@ void actionRoutine([[maybe_unused]] const ros::TimerEvent& evt) {
         state = PLANNING;
         break;
       }
-      current_goal = waypoint_buffer.back();
 
-      mrs_msgs::Path path_msg;
-      path_msg.header.frame_id = map_frame;
-      path_msg.header.stamp    = ros::Time::now();
-      path_msg.fly_now         = true;
+      mrs_msgs::GetPathSrv path_srv;
+      path_srv.request.path.header.frame_id = map_frame;
+      path_srv.request.path.header.stamp    = ros::Time::now();
+      path_srv.request.path.fly_now         = false;
 
-      for (auto& w : waypoint_buffer) {
+      for (auto& w : waypoints) {
         mrs_msgs::Reference ref;
         ref.position.x = w.x();
         ref.position.y = w.y();
         ref.position.z = w.z();
         ref.heading    = 0;
-        path_msg.points.push_back(ref);
+        path_srv.request.path.points.push_back(ref);
       }
-      /* planner_bv.addPoint(Eigen::Vector3d(current_goal.x(), current_goal.y(), current_goal.z())); */
-      /* planner_bv.addTrajectory(path_msg); */
-      /* planner_bv.publish(); */
 
-      path_publisher.publish(path_msg);
+      ROS_INFO("[%s]: Calling trajectory generation", ros::this_node::getName().c_str());
+
+      trajectory_generation_client.call(path_srv);
+
+      ROS_INFO("[%s]: Generator response: %s", ros::this_node::getName().c_str(), path_srv.response.message.c_str());
+
+      if (!path_srv.response.success) {
+        break;
+      }
+
+      processed_bv.clearBuffers();
+      for (auto& p : path_srv.response.trajectory.points) {
+        auto v = Eigen::Vector3d(p.position.x, p.position.y, p.position.z);
+        processed_bv.addPoint(v, 0, 1, 0, 1);
+      }
+      processed_bv.publish();
+
+      auto trajectory = path_srv.response.trajectory;
+      ROS_INFO("[%s]: Setting replanning point", ros::this_node::getName().c_str());
+      setReplanningPoint(trajectory);
+      set_timepoints = true;
+
+      ROS_INFO("[%s]: Publishing reference", ros::this_node::getName().c_str());
+
+      mrs_msgs::TrajectoryReferenceSrv reference_out;
+      reference_out.request.trajectory         = path_srv.response.trajectory;
+      reference_out.request.trajectory.fly_now = true;
+      trajectory_reference_client.call(reference_out);
+
+
+      ROS_INFO("[%s]: Control manager response: %s", ros::this_node::getName().c_str(), reference_out.response.message.c_str());
+
+      if (!reference_out.response.success) {
+        break;
+      }
+
       state = MOVING;
       break;
     }
 
     case MOVING: {
       replanning_without_motion = 0;
-      if ((uav_pos - final_goal).norm() < endpoint_tolerance) {
-        ROS_INFO("[%s]: Final goal reached!", ros::this_node::getName().c_str());
+      if ((uav_pos - user_defined_goal).norm() < endpoint_tolerance) {
+        ROS_INFO("[%s]: User defined goal reached!", ros::this_node::getName().c_str());
         state = IDLE;
+        break;
       }
-      if (got_trajectory_generator_output && replanning_timepoint.toSec() - ros::Time::now().toSec() < 0) {
-        state = PLANNING;
+
+      if ((replanning_start_timepoint - ros::Time::now()).toSec() <= 0) {
+        ROS_INFO("[%s]: Trigger replanning!", ros::this_node::getName().c_str());
+        plan_from = replanning_point;
+        state     = PLANNING;
       }
+
       break;
     }
   }
@@ -231,23 +309,32 @@ int main(int argc, char** argv) {
   param_loader.loadParam("endpoint_tolerance", endpoint_tolerance);
   param_loader.loadParam("lines_scale", lines_scale);
   param_loader.loadParam("max_waypoint_distance", max_waypoint_distance);
+  param_loader.loadParam("min_altitude", min_altitude);
   param_loader.loadParam("timeout_threshold", timeout_threshold);
+  param_loader.loadParam("time_for_trajectory_generator", time_for_trajectory_generator);
+  param_loader.loadParam("replan_after", replan_after);
 
   action_timer = nh_.createTimer(ros::Duration(1.0 / timer_rate), &actionRoutine);
 
-  odom_subscriber       = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
-  octomap_subscriber    = nh_.subscribe("octomap_in", 1, &octomapCallback, ros::TransportHints().tcpNoDelay());
-  trajectory_subscriber = nh_.subscribe("trajectory_in", 1, &trajectoryCallback, ros::TransportHints().tcpNoDelay());
-  path_publisher        = nh_.advertise<mrs_msgs::Path>("path_out", 1);
+  odom_subscriber           = nh_.subscribe("odom_in", 10, &odomCallback, ros::TransportHints().tcpNoDelay());
+  octomap_subscriber        = nh_.subscribe("octomap_in", 1, &octomapCallback, ros::TransportHints().tcpNoDelay());
+  mpc_prediction_subscriber = nh_.subscribe("mpc_prediction_in", 1, &mpcPredictionCallback, ros::TransportHints().tcpNoDelay());
+
+  trajectory_generation_client = nh_.serviceClient<mrs_msgs::GetPathSrv>("trajectory_generation_out");
+  trajectory_reference_client  = nh_.serviceClient<mrs_msgs::TrajectoryReferenceSrv>("trajectory_reference_out");
 
   // BatchVisualizer setup
-  command_bv = mrs_lib::BatchVisualizer(nh_, "visualize_command", "uav1/gps_origin");
-  command_bv.setPointsScale(points_scale);
-  command_bv.setLinesScale(lines_scale);
+  input_bv = mrs_lib::BatchVisualizer(nh_, "visualize_input", "uav1/gps_origin");
+  input_bv.setPointsScale(points_scale);
+  input_bv.setLinesScale(lines_scale);
 
   planner_bv = mrs_lib::BatchVisualizer(nh_, "visualize_planner", "uav1/gps_origin");
   planner_bv.setPointsScale(points_scale);
   planner_bv.setLinesScale(lines_scale);
+
+  processed_bv = mrs_lib::BatchVisualizer(nh_, "visualize_processed", "uav1/gps_origin");
+  processed_bv.setPointsScale(points_scale);
+  processed_bv.setLinesScale(lines_scale);
 
   goto_server = nh_.advertiseService("goto_in", &gotoCallback);
 
