@@ -1,12 +1,20 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.1.2)
 project(pathfinder)
 
 find_package(catkin REQUIRED
   roscpp
+  cmake_modules
+  nodelet
+  mrs_lib
   std_msgs
   nav_msgs
-  mrs_lib
+  mrs_msgs
   )
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# set(CMAKE_CXX_FLAGS "-std=c++1z -O3")
 
 find_package(octomap REQUIRED)
 find_package(dynamicEDT3D REQUIRED)
@@ -18,11 +26,9 @@ set(Eigen_LIBRARIES ${Eigen_LIBRARIES})
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp std_msgs nav_msgs mrs_lib mrs_msgs
-  LIBRARIES astar_planner
+  CATKIN_DEPENDS roscpp nodelet mrs_lib std_msgs nav_msgs mrs_msgs
+  LIBRARIES Pathfinder MrsAstarPlanner
   )
-
-set(CMAKE_CXX_FLAGS "-std=c++1z -O3")
 
 include_directories(
   include
@@ -30,10 +36,37 @@ include_directories(
   ${octomap_INCLUDE_DIRS}
   )
 
-add_library(astar_planner src/astar_planner.cpp)
-add_dependencies(astar_planner ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(astar_planner ${catkin_LIBRARIES} ${OCTOMAP_LIBRARIES} ${DYNAMICEDT3D_LIBRARIES})
+# astar planner
 
-add_executable(pathfinder src/pathfinder.cpp)
-add_dependencies(pathfinder ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(pathfinder astar_planner ${catkin_LIBRARIES} ${OCTOMAP_LIBRARIES} ${DYNAMICEDT3D_LIBRARIES})
+add_library(MrsAstarPlanner
+  src/astar_planner.cpp
+  )
+
+add_dependencies(MrsAstarPlanner
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+  )
+
+target_link_libraries(MrsAstarPlanner
+  ${catkin_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
+  ${DYNAMICEDT3D_LIBRARIES}
+  )
+
+# pathfinder
+
+add_library(Pathfinder
+  src/pathfinder.cpp
+  )
+
+add_dependencies(Pathfinder
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+  )
+
+target_link_libraries(Pathfinder
+  MrsAstarPlanner
+  ${catkin_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
+  ${DYNAMICEDT3D_LIBRARIES}
+  )

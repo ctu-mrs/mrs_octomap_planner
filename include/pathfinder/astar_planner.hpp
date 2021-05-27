@@ -101,7 +101,7 @@ private:
   octomap::point3d generateTemporaryGoal(const octomap::point3d &start, const octomap::point3d &goal, octomap::OcTree &tree);
 
   std::vector<octomap::point3d> postprocessPath(const std::vector<octomap::point3d> &waypoints, octomap::OcTree &tree);
-  
+
   std::vector<octomap::point3d> prepareOutputPath(const std::vector<octomap::OcTreeKey> &keys, octomap::OcTree &tree);
 
   void visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied);
