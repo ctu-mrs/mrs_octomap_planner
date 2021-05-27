@@ -93,8 +93,11 @@ private:
   mrs_lib::BatchVisualizer bv_input_;
   std::mutex               mutex_bv_input_;
 
-  mrs_lib::BatchVisualizer bv_planner_;
+  std::shared_ptr<mrs_lib::BatchVisualizer> bv_planner_;
+  std::mutex                                mutex_bv_planner_;
+
   mrs_lib::BatchVisualizer bv_processed_;
+  std::mutex               mutex_bv_processed_;
 
   // subscribers
   mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>        sh_position_cmd_;
@@ -223,9 +226,9 @@ void Pathfinder::onInit() {
   bv_input_.setPointsScale(_points_scale_);
   bv_input_.setLinesScale(_lines_scale_);
 
-  bv_planner_ = mrs_lib::BatchVisualizer(nh_, "visualize_planner", "");
-  bv_planner_.setPointsScale(_points_scale_);
-  bv_planner_.setLinesScale(_lines_scale_);
+  bv_planner_ = std::make_shared<mrs_lib::BatchVisualizer>(nh_, "visualize_planner", "");
+  bv_planner_->setPointsScale(_points_scale_);
+  bv_planner_->setLinesScale(_lines_scale_);
 
   bv_processed_ = mrs_lib::BatchVisualizer(nh_, "visualize_processed", "");
   bv_processed_.setPointsScale(_points_scale_);
@@ -293,6 +296,24 @@ void Pathfinder::callbackOctomap(mrs_lib::SubscribeHandler<octomap_msgs::Octomap
 
     octomap_       = std::shared_ptr<octomap::OcTree>(dynamic_cast<octomap::OcTree*>(tree_ptr));
     octomap_frame_ = octomap->header.frame_id;
+  }
+
+  {
+    std::scoped_lock lock(mutex_bv_input_);
+
+    bv_input_.setParentFrame(octomap->header.frame_id);
+  }
+
+  {
+    std::scoped_lock lock(mutex_bv_planner_);
+
+    bv_planner_->setParentFrame(octomap->header.frame_id);
+  }
+
+  {
+    std::scoped_lock lock(mutex_bv_processed_);
+
+    bv_processed_.setParentFrame(octomap->header.frame_id);
   }
 }
 
@@ -421,6 +442,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
     case STATE_PLANNING: {
 
+      std::scoped_lock lock(mutex_bv_planner_);
+
       pathfinder::AstarPlanner planner =
           pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
                                    _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _unknown_is_occupied_, bv_planner_);
@@ -473,12 +496,16 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         }
       }
 
-      bv_processed_.clearBuffers();
-      for (auto& p : srv_get_path.response.trajectory.points) {
-        auto v = Eigen::Vector3d(p.position.x, p.position.y, p.position.z);
-        bv_processed_.addPoint(v, 0, 1, 0, 1);
+      {
+        std::scoped_lock lock(mutex_bv_processed_);
+
+        bv_processed_.clearBuffers();
+        for (auto& p : srv_get_path.response.trajectory.points) {
+          auto v = Eigen::Vector3d(p.position.x, p.position.y, p.position.z);
+          bv_processed_.addPoint(v, 0, 1, 0, 1);
+        }
+        bv_processed_.publish();
       }
-      bv_processed_.publish();
 
       auto trajectory = srv_get_path.response.trajectory;
       ROS_INFO("[Pathfinder]: Setting replanning point");
@@ -582,24 +609,8 @@ void Pathfinder::changeState(const State_t new_state) {
 
   switch (new_state) {
 
-    case STATE_IDLE: {
-
-      break;
-    }
-
-    case STATE_PLANNING: {
-
-      break;
-    }
-
-    case STATE_MOVING: {
-
-      break;
-    }
-
     default: {
 
-      ROS_ERROR("[Pathfinder]: swtiching to unchecked state!");
       break;
     }
   }
