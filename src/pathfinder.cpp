@@ -1,6 +1,5 @@
 /* includes //{ */
 
-#include "mrs_msgs/TrajectoryReference.h"
 #include <ros/init.h>
 #include <ros/ros.h>
 #include <ros/package.h>
@@ -21,12 +20,16 @@
 #include <mrs_lib/subscribe_handler.h>
 #include <mrs_lib/mutex.h>
 #include <mrs_lib/service_client_handler.h>
+#include <mrs_lib/transformer.h>
+#include <mrs_lib/geometry/misc.h>
 
 #include <mrs_msgs/PositionCommand.h>
 #include <mrs_msgs/Vec4.h>
 #include <mrs_msgs/GetPathSrv.h>
 #include <mrs_msgs/MpcPredictionFullState.h>
 #include <mrs_msgs/TrajectoryReferenceSrv.h>
+
+#include <std_srvs/Trigger.h>
 
 #include <pathfinder/astar_planner.hpp>
 
@@ -58,8 +61,9 @@ public:
 private:
   ros::NodeHandle nh_;
 
-  bool        is_initialized_ = false;
-  std::string _uav_name_;
+  bool              is_initialized_ = false;
+  std::atomic<bool> ready_to_plan_  = false;
+  std::string       _uav_name_;
 
   // params
   double _euclidean_distance_cutoff_;
@@ -72,8 +76,8 @@ private:
   double _max_waypoint_distance_;
   double _endpoint_tolerance_;
   double _min_altitude_;
-  double _replan_after_;
   double _rate_main_timer_;
+  double _replan_after_;
   bool   _unknown_is_occupied_ = false;
 
   std::shared_ptr<octomap::OcTree> octomap_;
@@ -118,25 +122,35 @@ private:
   // service clients
   mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>             sc_get_trajectory_;
   mrs_lib::ServiceClientHandler<mrs_msgs::TrajectoryReferenceSrv> sc_trajectory_reference_;
+  mrs_lib::ServiceClientHandler<std_srvs::Trigger>                sc_hover_;
 
   // timers
   ros::Timer timer_main_;
   void       timerMain([[maybe_unused]] const ros::TimerEvent& evt);
 
+  // timeouts
+  void timeoutOctomap(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
+  void timeoutPositionCmd(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
+  void timeoutMpcPrediction(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
+
+  // transformer
+  mrs_lib::Transformer transformer_;
+
+  std::string current_control_frame_;
+  std::mutex  mutex_current_control_frame_;
+
   // planning
-  std::atomic<int> replanning_without_motion_ = 0;
+  std::atomic<int> replanning_counter_ = 0;
+  ros::Time        time_last_plan_;
 
   // state machine
   std::atomic<State_t> state_;
   void                 changeState(const State_t new_state);
 
-  octomap::point3d user_goal_;
-  std::mutex       mutex_user_goal_;
+  mrs_msgs::Reference user_goal_;
+  std::mutex          mutex_user_goal_;
 
   octomap::point3d internal_goal_;
-
-  octomap::point3d plan_from_;
-  std::mutex       mutex_plan_from_;
 
   std::atomic<bool> set_timepoints_ = false;
 
@@ -147,8 +161,18 @@ private:
   std::mutex       mutex_replanning_point_;
 
   // routines
-
   void setReplanningPoint(const mrs_msgs::TrajectoryReference& traj);
+
+  /**
+   * @brief returns planning initial condition for a given future time based on the MPC prediction horizon
+   *
+   * @param time
+   *
+   * @return x, y, z, heading reference
+   */
+  std::optional<mrs_msgs::ReferenceStamped> getInitialCondition(const ros::Time time);
+
+  void hover(void);
 };
 
 //}
@@ -180,8 +204,8 @@ void Pathfinder::onInit() {
   param_loader.loadParam("max_waypoint_distance", _max_waypoint_distance_);
   param_loader.loadParam("min_altitude", _min_altitude_);
   param_loader.loadParam("timeout_threshold", _timeout_threshold_);
-  param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
   param_loader.loadParam("replan_after", _replan_after_);
+  param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
 
   if (!param_loader.loadedSuccessfully()) {
     ROS_ERROR("[Pathfinder]: could not load all parameters");
@@ -207,18 +231,27 @@ void Pathfinder::onInit() {
   shopts.queue_size         = 10;
   shopts.transport_hints    = ros::TransportHints().tcpNoDelay();
 
-  sh_position_cmd_   = mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>(shopts, "position_cmd_in", &Pathfinder::callbackPositionCmd, this);
-  sh_octomap_        = mrs_lib::SubscribeHandler<octomap_msgs::Octomap>(shopts, "octomap_in", &Pathfinder::callbackOctomap, this);
-  sh_mpc_prediction_ = mrs_lib::SubscribeHandler<mrs_msgs::MpcPredictionFullState>(shopts, "mpc_prediction_in", &Pathfinder::callbackMpcPrediction, this);
+  sh_position_cmd_ = mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>(shopts, "position_cmd_in", ros::Duration(3.0), &Pathfinder::timeoutPositionCmd, this,
+                                                                          &Pathfinder::callbackPositionCmd, this);
+  sh_octomap_      = mrs_lib::SubscribeHandler<octomap_msgs::Octomap>(shopts, "octomap_in", ros::Duration(3.0), &Pathfinder::timeoutOctomap, this,
+                                                                 &Pathfinder::callbackOctomap, this);
+
+  sh_mpc_prediction_ = mrs_lib::SubscribeHandler<mrs_msgs::MpcPredictionFullState>(
+      shopts, "mpc_prediction_in", ros::Duration(3.0), &Pathfinder::timeoutMpcPrediction, this, &Pathfinder::callbackMpcPrediction, this);
 
   // | --------------------- service clients -------------------- |
 
   sc_get_trajectory_       = mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>(nh_, "trajectory_generation_out");
   sc_trajectory_reference_ = mrs_lib::ServiceClientHandler<mrs_msgs::TrajectoryReferenceSrv>(nh_, "trajectory_reference_out");
+  sc_hover_                = mrs_lib::ServiceClientHandler<std_srvs::Trigger>(nh_, "hover_out");
 
   // | --------------------- service servers -------------------- |
 
   service_server_goto_ = nh_.advertiseService("goto_in", &Pathfinder::callbackGoto, this);
+
+  // | ----------------------- transformer ---------------------- |
+
+  transformer_ = mrs_lib::Transformer("Pathfinder", _uav_name_);
 
   // | -------------------- batch visualiuzer ------------------- |
 
@@ -253,21 +286,33 @@ void Pathfinder::callbackPositionCmd(mrs_lib::SubscribeHandler<mrs_msgs::Positio
     return;
   }
 
-  mrs_msgs::PositionCommandConstPtr position_cmd = wrp.getMsg();
-
   ROS_INFO_ONCE("[Pathfinder]: getting position cmd");
+}
 
-  {
-    std::scoped_lock lock(mutex_initial_condition_);
+//}
 
-    initial_pos_.x() = position_cmd->position.x;
-    initial_pos_.y() = position_cmd->position.y;
-    initial_pos_.z() = position_cmd->position.z;
+/* timeoutPositionCmd() //{ */
 
-    initial_heading_ = position_cmd->heading;
+void Pathfinder::timeoutPositionCmd(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs) {
+
+  if (!is_initialized_) {
+    return;
   }
 
-  got_initial_pos_ = true;
+  if (!sh_position_cmd_.hasMsg()) {
+    return;
+  }
+
+  if (state_ != STATE_IDLE) {
+
+    ROS_WARN_THROTTLE(1.0, "[Pathfinder]: position cmd timeouted!");
+
+    ready_to_plan_ = false;
+
+    changeState(STATE_IDLE);
+
+    hover();
+  }
 }
 
 //}
@@ -319,6 +364,32 @@ void Pathfinder::callbackOctomap(mrs_lib::SubscribeHandler<octomap_msgs::Octomap
 
 //}
 
+/* timeoutOctomap() //{ */
+
+void Pathfinder::timeoutOctomap(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs) {
+
+  if (!is_initialized_) {
+    return;
+  }
+
+  if (!sh_octomap_.hasMsg()) {
+    return;
+  }
+
+  if (state_ != STATE_IDLE) {
+
+    ROS_WARN_THROTTLE(1.0, "[Pathfinder]: octomap timeouted!");
+
+    ready_to_plan_ = false;
+
+    changeState(STATE_IDLE);
+
+    hover();
+  }
+}
+
+//}
+
 /* callbackMpcPrediction() //{ */
 
 void Pathfinder::callbackMpcPrediction(mrs_lib::SubscribeHandler<mrs_msgs::MpcPredictionFullState>& wrp) {
@@ -328,35 +399,31 @@ void Pathfinder::callbackMpcPrediction(mrs_lib::SubscribeHandler<mrs_msgs::MpcPr
   }
 
   ROS_INFO_ONCE("[Pathfinder]: getting mpc prediction");
+}
 
-  mrs_msgs::MpcPredictionFullStateConstPtr prediction = wrp.getMsg();
+//}
 
-  if (set_timepoints_) {
+/* timeoutMpcPrediction() //{ */
 
-    auto replanning_point = mrs_lib::get_mutexed(mutex_replanning_point_, replanning_point_);
+void Pathfinder::timeoutMpcPrediction(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs) {
 
-    for (size_t i = 0; i < prediction->position.size(); i++) {
+  if (!is_initialized_) {
+    return;
+  }
 
-      octomap::point3d p;
-      p.x() = prediction->position[i].x;
-      p.y() = prediction->position[i].y;
-      p.z() = prediction->position[i].z;
+  if (!sh_mpc_prediction_.hasMsg()) {
+    return;
+  }
 
-      if ((p - replanning_point_).norm() < 0.08) {
+  if (state_ != STATE_IDLE) {
 
-        {
-          std::scoped_lock lock(mutex_replanning_point_);
+    ROS_WARN_THROTTLE(1.0, "[Pathfinder]: MPC prediction timeouted!");
 
-          replanning_end_timepoint_   = prediction->stamps[i];
-          replanning_start_timepoint_ = replanning_end_timepoint_ - ros::Duration(_timeout_threshold_ + _time_for_trajectory_generator_);
-        }
+    ready_to_plan_ = false;
 
-        ROS_INFO("[Pathfinder]: replanning will start in %.3f seconds!", (replanning_start_timepoint_ - ros::Time::now()).toSec());
-        set_timepoints_ = false;
+    changeState(STATE_IDLE);
 
-        break;
-      }
-    }
+    hover();
   }
 }
 
@@ -366,36 +433,66 @@ void Pathfinder::callbackMpcPrediction(mrs_lib::SubscribeHandler<mrs_msgs::MpcPr
 
 bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
 
+  /* prerequisities //{ */
+
   if (!is_initialized_) {
     return false;
   }
 
-  const double x   = req.goal[0];
-  const double y   = req.goal[1];
-  const double z   = req.goal[2];
-  const double hdg = req.goal[3];
+  if (!ready_to_plan_) {
+    std::stringstream ss;
+    ss << "not ready to plan, missing data";
 
-  {
-    std::scoped_lock lock(mutex_user_goal_);
+    ROS_ERROR_STREAM("[Pathfinder]: " << ss.str());
 
-    user_goal_.x() = float(x);
-    user_goal_.y() = float(y);
-    user_goal_.z() = float(z);
+    res.success = false;
+    res.message = ss.str();
+    return true;
   }
 
-  {
-    std::scoped_lock lock(mutex_plan_from_);
+  //}
 
-    plan_from_ = initial_pos_;
+  // | -------- transform the reference to the map frame -------- |
+
+  {
+    mrs_msgs::PositionCommandConstPtr position_cmd  = sh_position_cmd_.getMsg();
+    auto                              octomap_frame = mrs_lib::get_mutexed(mutex_octomap_, octomap_frame_);
+
+    mrs_msgs::ReferenceStamped reference;
+    reference.header.frame_id = position_cmd->header.frame_id;
+
+    reference.reference.position.x = req.goal[0];
+    reference.reference.position.y = req.goal[1];
+    reference.reference.position.z = req.goal[2];
+    reference.reference.heading    = req.goal[3];
+
+    auto result = transformer_.transformSingle(octomap_frame, reference);
+
+    if (result) {
+
+      std::scoped_lock lock(mutex_user_goal_);
+
+      user_goal_ = result.value().reference;
+
+    } else {
+      std::stringstream ss;
+      ss << "could not transform the reference from " << position_cmd->header.frame_id << " to " << octomap_frame;
+
+      ROS_ERROR_STREAM("[Pathfinder]: " << ss.str());
+
+      res.success = false;
+      res.message = ss.str();
+      return true;
+    }
   }
 
   changeState(STATE_PLANNING);
 
   {
-    std::scoped_lock lock(mutex_bv_input_);
+    std::scoped_lock lock(mutex_bv_input_, mutex_user_goal_);
 
     bv_input_.clearBuffers();
-    bv_input_.addPoint(Eigen::Vector3d(x, y, z));
+    bv_input_.addPoint(Eigen::Vector3d(user_goal_.position.x, user_goal_.position.y, user_goal_.position.z));
     bv_input_.publish();
   }
 
@@ -418,21 +515,27 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
   /* prerequsitioes //{ */
 
-  const bool got_octomap        = sh_octomap_.hasMsg();
-  const bool got_position_cmd   = sh_position_cmd_.hasMsg();
-  const bool got_mpc_prediction = sh_mpc_prediction_.hasMsg();
+  const bool got_octomap        = sh_octomap_.hasMsg() && (ros::Time::now() - sh_octomap_.lastMsgTime()).toSec() < 2.0;
+  const bool got_position_cmd   = sh_position_cmd_.hasMsg() && (ros::Time::now() - sh_position_cmd_.lastMsgTime()).toSec() < 2.0;
+  const bool got_mpc_prediction = sh_mpc_prediction_.hasMsg() && (ros::Time::now() - sh_mpc_prediction_.lastMsgTime()).toSec() < 2.0;
 
   if (!got_octomap || !got_position_cmd || !got_mpc_prediction) {
     ROS_INFO_THROTTLE(1.0, "[Pathfinder]: waiting for data: octomap = %s, position cmd = %s, MPC prediction = %s", got_octomap ? "TRUE" : "FALSE",
                       got_position_cmd ? "TRUE" : "FALSE", got_mpc_prediction ? "TRUE" : "FALSE");
     return;
+  } else {
+    ready_to_plan_ = true;
   }
 
   //}
 
   const auto [octomap, map_frame] = mrs_lib::get_mutexed(mutex_octomap_, octomap_, octomap_frame_);
   const auto user_goal            = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
-  const auto plan_from            = mrs_lib::get_mutexed(mutex_plan_from_, plan_from_);
+
+  octomap::point3d user_goal_octpoint;
+  user_goal_octpoint.x() = user_goal.position.x;
+  user_goal_octpoint.y() = user_goal.position.y;
+  user_goal_octpoint.z() = user_goal.position.z;
 
   switch (state_) {
 
@@ -440,7 +543,23 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       break;
     }
 
+      /* STATE_PLANNING //{ */
+
     case STATE_PLANNING: {
+
+      // get the initial condition
+
+      auto initial_condition = getInitialCondition(ros::Time::now() + ros::Duration(_time_for_trajectory_generator_));
+
+      if (!initial_condition) {
+        ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition for planning");
+        break;
+      }
+
+      octomap::point3d plan_from;
+      plan_from.x() = initial_condition.value().reference.position.x;
+      plan_from.y() = initial_condition.value().reference.position.y;
+      plan_from.z() = initial_condition.value().reference.position.z;
 
       std::scoped_lock lock(mutex_bv_planner_);
 
@@ -448,35 +567,66 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
                                    _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _unknown_is_occupied_, bv_planner_);
 
-      auto waypoints = planner.findPath(plan_from, user_goal, octomap);
+      std::pair<std::vector<octomap::point3d>, bool> waypoints =
+          planner.findPath(plan_from, user_goal_octpoint, octomap, _timeout_threshold_ * pow(2.0, float(replanning_counter_)));
 
-      if (waypoints.size() < 2) {
+      // path is complete
+      if (waypoints.second) {
 
-        ROS_ERROR("[Pathfinder]: path not found");
+        replanning_counter_ = 0;
 
-        replanning_without_motion_++;
+      } else {
 
-        if (replanning_without_motion_ > 10) {
-          ROS_ERROR("[Pathfinder]: planning failed, uav is stuck!");
-          changeState(STATE_IDLE);
+        double front_x = waypoints.first.front().x();
+        double front_y = waypoints.first.front().y();
+        double front_z = waypoints.first.front().z();
+
+        double back_x = waypoints.first.back().x();
+        double back_y = waypoints.first.back().y();
+        double back_z = waypoints.first.back().z();
+
+        double path_start_end_dist = sqrt(pow(front_x - back_x, 2) + pow(front_y - back_y, 2) + pow(front_z - back_z, 2));
+
+        if (waypoints.first.size() < 2 || path_start_end_dist < 0.5) {
+
+          ROS_ERROR("[Pathfinder]: path not found");
+
+          replanning_counter_++;
+
+          if (replanning_counter_ > 5) {
+            ROS_ERROR("[Pathfinder]: planning failed, uav is stuck!");
+            changeState(STATE_IDLE);
+            break;
+          }
+
+          changeState(STATE_PLANNING);
+
           break;
         }
+      }
 
-        changeState(STATE_PLANNING);
-        break;
+      time_last_plan_ = ros::Time::now();
+
+      ros::Time path_stamp = initial_condition->header.stamp;
+
+      if (ros::Time::now() > path_stamp) {
+        path_stamp = ros::Time(0);
       }
 
       mrs_msgs::GetPathSrv srv_get_path;
       srv_get_path.request.path.header.frame_id = octomap_frame_;
-      srv_get_path.request.path.header.stamp    = ros::Time::now();
+      srv_get_path.request.path.header.stamp    = path_stamp;
       srv_get_path.request.path.fly_now         = false;
+      srv_get_path.request.path.use_heading     = true;
 
-      for (auto& w : waypoints) {
+      for (auto& w : waypoints.first) {
+
         mrs_msgs::Reference ref;
         ref.position.x = w.x();
         ref.position.y = w.y();
         ref.position.z = w.z();
-        ref.heading    = 0;
+        ref.heading    = user_goal.heading;
+
         srv_get_path.request.path.points.push_back(ref);
       }
 
@@ -536,35 +686,34 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       break;
     }
 
-    case STATE_MOVING: {
+      //}
 
-      replanning_without_motion_ = 0;
+      /* STATE_MOVING //{ */
+
+    case STATE_MOVING: {
 
       auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_);
 
-      if ((initial_pos - user_goal).norm() < _endpoint_tolerance_) {
+      if ((initial_pos - user_goal_octpoint).norm() < _endpoint_tolerance_) {
         ROS_INFO("[Pathfinder]: user goal reached");
         changeState(STATE_IDLE);
         break;
       }
 
-      if ((replanning_start_timepoint_ - ros::Time::now()).toSec() <= 0) {
+      if ((ros::Time::now() - (time_last_plan_ + ros::Duration(_replan_after_))).toSec() > 0) {
 
         ROS_INFO("[Pathfinder]: triggering replanning");
-
-        {
-          std::scoped_lock lock(mutex_replanning_point_, mutex_plan_from_);
-
-          plan_from_ = replanning_point_;
-        }
 
         changeState(STATE_PLANNING);
       }
 
       break;
     }
+
+      //}
   }
 }
+
 //}
 
 // | ------------------------ routines ------------------------ |
@@ -587,13 +736,13 @@ void Pathfinder::setReplanningPoint(const mrs_msgs::TrajectoryReference& traj) {
 
   mrs_lib::geometry::Cuboid c(Eigen::Vector3d(x, y, z), Eigen::Vector3d(0.4, 0.4, 0.4), Eigen::Quaterniond::Identity());
 
-  auto user_goal = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
-
   {
     std::scoped_lock lock(mutex_bv_input_);
 
+    auto user_goal = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
+
     bv_input_.clearBuffers();
-    bv_input_.addPoint(Eigen::Vector3d(user_goal.x(), user_goal.y(), user_goal.z()), 0, 1, 0, 1);
+    bv_input_.addPoint(Eigen::Vector3d(user_goal.position.x, user_goal.position.y, user_goal.position.z), 0, 1, 0, 1);
     bv_input_.addCuboid(c, 0.5, 1.0, 1.0, 0.8, true);
     bv_input_.publish();
   }
@@ -618,6 +767,66 @@ void Pathfinder::changeState(const State_t new_state) {
   ROS_INFO("[Pathfinder]: changing state '%s' -> '%s'", _state_names_[old_state].c_str(), _state_names_[new_state].c_str());
 
   state_ = new_state;
+}
+
+//}
+
+/* getInitialCondition() //{ */
+
+std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const ros::Time time) {
+
+  const mrs_msgs::MpcPredictionFullStateConstPtr prediction_full_state = sh_mpc_prediction_.getMsg();
+
+  if (time > prediction_full_state->stamps.back()) {
+    ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition, the desired time is too far in the future");
+    return {};
+  }
+
+  mrs_msgs::ReferenceStamped orig_reference;
+  orig_reference.header.frame_id = prediction_full_state->header.frame_id;
+
+  for (int i = 0; i < prediction_full_state->stamps.size(); i++) {
+
+    if (prediction_full_state->stamps[i] >= time) {
+      orig_reference.reference.position.x = prediction_full_state->position[i].x;
+      orig_reference.reference.position.y = prediction_full_state->position[i].y;
+      orig_reference.reference.position.z = prediction_full_state->position[i].z;
+      orig_reference.reference.heading    = prediction_full_state->heading[i];
+      orig_reference.header.stamp         = prediction_full_state->stamps[i];
+    }
+  }
+
+  // transform the initial condition to the current map frame
+
+  auto octomap_frame = mrs_lib::get_mutexed(mutex_octomap_, octomap_frame_);
+
+  auto result = transformer_.transformSingle(octomap_frame, orig_reference);
+
+  if (result) {
+
+    return result.value();
+
+  } else {
+
+    std::stringstream ss;
+    ss << "could not transform initial condition to the map frame";
+
+    ROS_ERROR_STREAM("[Pathfinder]: " << ss.str());
+    return {};
+  }
+}
+
+//}
+
+/* hover() //{ */
+
+void Pathfinder::hover(void) {
+
+  ROS_INFO("[Pathfinder]: triggering hover");
+
+  std_srvs::Trigger srv_out;
+
+  sc_hover_.call(srv_out);
 }
 
 //}

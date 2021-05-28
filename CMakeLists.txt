@@ -14,7 +14,7 @@ find_package(catkin REQUIRED
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# set(CMAKE_CXX_FLAGS "-std=c++1z -O3")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
 find_package(octomap REQUIRED)
 find_package(dynamicEDT3D REQUIRED)
@@ -34,6 +34,7 @@ include_directories(
   include
   ${catkin_INCLUDE_DIRS}
   ${octomap_INCLUDE_DIRS}
+  ${dynamicEDT3D_INCLUDE_DIRS}
   )
 
 # astar planner

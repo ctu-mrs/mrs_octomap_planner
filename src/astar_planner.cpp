@@ -54,11 +54,13 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
 
 /* findPath main //{ */
 
-std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::point3d &start_coord, const octomap::point3d &goal_coord,
-                                                     std::shared_ptr<octomap::OcTree> mapping_tree) {
+std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octomap::point3d &start_coord, const octomap::point3d &goal_coord,
+                                                                      std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout) {
 
   bv->clearBuffers();
   auto time_start = ros::Time::now();
+
+  this->timeout_threshold = timeout;
 
   std::pair<octomap::OcTree, std::vector<octomap::point3d>> tree_with_tunnel = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution);
 
@@ -118,11 +120,12 @@ std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::point3d &sta
 
     auto time_now = ros::Time::now();
     if (time_now.toSec() - time_start.toSec() > timeout_threshold) {
+
       ROS_WARN("[%s]: Planning timeout! Using current best node as goal.", ros::this_node::getName().c_str());
       auto path_keys = backtrackPathKeys(best_node, first, parent_map);
       ROS_INFO("[%s]: Path found. Length: %ld", ros::this_node::getName().c_str(), path_keys.size());
 
-      return prepareOutputPath(path_keys, tree);
+      return std::make_pair(prepareOutputPath(path_keys, tree), false);
     }
 
     auto current = *open.begin();
@@ -133,11 +136,12 @@ std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::point3d &sta
     /* std::cout << "Current coord: " << current_coord.x() << ", " << current_coord.y() << ", " << current_coord.z() << std::endl; */
 
     if (distEuclidean(current_coord, map_goal) < 0.2) {
+
       auto path_keys = backtrackPathKeys(current, first, parent_map);
       path_keys.push_back(tree.coordToKey(map_goal));
       ROS_INFO("[%s]: Path found. Length: %ld", ros::this_node::getName().c_str(), path_keys.size());
 
-      return prepareOutputPath(path_keys, tree);
+      return {prepareOutputPath(path_keys, tree), true};
     }
 
     // expand
@@ -194,8 +198,10 @@ std::vector<octomap::point3d> AstarPlanner::findPath(const octomap::point3d &sta
       }
     }
   }
+
   std::cout << "PATH DOES NOT EXIST!" << std::endl;
-  return std::vector<octomap::point3d>();
+
+  return {std::vector<octomap::point3d>(), false};
 }
 //}
 

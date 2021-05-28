@@ -42,6 +42,7 @@
 
       <remap from="~trajectory_generation_out" to="trajectory_generation/get_path" />
       <remap from="~trajectory_reference_out" to="control_manager/trajectory_reference" />
+      <remap from="~hover_out" to="control_manager/hover" />
 
     </node>
 
