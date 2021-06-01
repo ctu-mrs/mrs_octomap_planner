@@ -57,6 +57,8 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
 std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octomap::point3d &start_coord, const octomap::point3d &goal_coord,
                                                                       std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout) {
 
+  ROS_INFO("[%s]: Astar: user goal [%.2f, %.2f, %.2f]", ros::this_node::getName().c_str(), goal_coord.x(), goal_coord.y(), goal_coord.z());
+
   bv->clearBuffers();
   auto time_start = ros::Time::now();
 
@@ -74,6 +76,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   auto map_goal  = goal_coord;
   auto map_query = mapping_tree->search(goal_coord);
+
   if (map_query == NULL) {
     ROS_INFO("[%s]: Goal is outside of map", ros::this_node::getName().c_str());
     map_goal = generateTemporaryGoal(start_coord, goal_coord, tree);
@@ -119,6 +122,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   while (!open.empty() && ros::ok()) {
 
     auto time_now = ros::Time::now();
+
     if (time_now.toSec() - time_start.toSec() > timeout_threshold) {
 
       ROS_WARN("[%s]: Planning timeout! Using current best node as goal.", ros::this_node::getName().c_str());
@@ -135,7 +139,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     auto current_coord = tree.keyToCoord(current.key);
     /* std::cout << "Current coord: " << current_coord.x() << ", " << current_coord.y() << ", " << current_coord.z() << std::endl; */
 
-    if (distEuclidean(current_coord, map_goal) < 0.2) {
+    if (distEuclidean(current_coord, map_goal) < 2*planning_tree_resolution) {
 
       auto path_keys = backtrackPathKeys(current, first, parent_map);
       path_keys.push_back(tree.coordToKey(map_goal));
@@ -146,7 +150,6 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     // expand
     auto neighbors = getNeighborhood(current.key, tree);
-
 
     for (auto &nkey : neighbors) {
 
@@ -184,9 +187,10 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       // check if closed
       auto closed_query = closed.find(n);
-      if (closed_query == closed.end()) {
-        // not in closed map -> open
 
+      if (closed_query == closed.end()) {
+
+        // not in closed map -> open
         n.goal_dist  = distEuclidean(nkey, goal, tree);
         n.cum_dist   = current.cum_dist + distEuclidean(current.key, nkey, tree);
         n.total_cost = distance_penalty * n.cum_dist + greedy_penalty * n.goal_dist;
@@ -608,6 +612,7 @@ octomap::point3d AstarPlanner::generateTemporaryGoal(const octomap::point3d &sta
 
   // try to explore unknown cells
   std::set<std::pair<octomap::OcTree::iterator, double>, LeafComparator> leafs;
+
   for (auto it = tree.begin_leafs(); it != tree.end_leafs(); it++) {
 
     if (it->getValue() == TreeValue::OCCUPIED) {

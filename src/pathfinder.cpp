@@ -28,6 +28,7 @@
 #include <mrs_msgs/GetPathSrv.h>
 #include <mrs_msgs/MpcPredictionFullState.h>
 #include <mrs_msgs/TrajectoryReferenceSrv.h>
+#include <mrs_msgs/ControlManagerDiagnostics.h>
 
 #include <std_srvs/Trigger.h>
 
@@ -104,9 +105,10 @@ private:
   std::mutex               mutex_bv_processed_;
 
   // subscribers
-  mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>        sh_position_cmd_;
-  mrs_lib::SubscribeHandler<octomap_msgs::Octomap>            sh_octomap_;
-  mrs_lib::SubscribeHandler<mrs_msgs::MpcPredictionFullState> sh_mpc_prediction_;
+  mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>           sh_position_cmd_;
+  mrs_lib::SubscribeHandler<octomap_msgs::Octomap>               sh_octomap_;
+  mrs_lib::SubscribeHandler<mrs_msgs::MpcPredictionFullState>    sh_mpc_prediction_;
+  mrs_lib::SubscribeHandler<mrs_msgs::ControlManagerDiagnostics> sh_control_manager_diag_;
 
   // subscriber callbacks
   void callbackPositionCmd(mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>& wrp);
@@ -132,6 +134,7 @@ private:
   void timeoutOctomap(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
   void timeoutPositionCmd(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
   void timeoutMpcPrediction(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
+  void timeoutControlManagerDiag(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
 
   // transformer
   mrs_lib::Transformer transformer_;
@@ -238,6 +241,9 @@ void Pathfinder::onInit() {
 
   sh_mpc_prediction_ = mrs_lib::SubscribeHandler<mrs_msgs::MpcPredictionFullState>(
       shopts, "mpc_prediction_in", ros::Duration(3.0), &Pathfinder::timeoutMpcPrediction, this, &Pathfinder::callbackMpcPrediction, this);
+
+  sh_control_manager_diag_ = mrs_lib::SubscribeHandler<mrs_msgs::ControlManagerDiagnostics>(shopts, "control_manager_diag_in", ros::Duration(3.0),
+                                                                                            &Pathfinder::timeoutControlManagerDiag, this);
 
   // | --------------------- service clients -------------------- |
 
@@ -429,6 +435,32 @@ void Pathfinder::timeoutMpcPrediction(const std::string& topic, const ros::Time&
 
 //}
 
+/* timeoutControlManagerDiag() //{ */
+
+void Pathfinder::timeoutControlManagerDiag(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs) {
+
+  if (!is_initialized_) {
+    return;
+  }
+
+  if (!sh_mpc_prediction_.hasMsg()) {
+    return;
+  }
+
+  if (state_ != STATE_IDLE) {
+
+    ROS_WARN_THROTTLE(1.0, "[Pathfinder]: Control manager diag timeouted!");
+
+    ready_to_plan_ = false;
+
+    changeState(STATE_IDLE);
+
+    hover();
+  }
+}
+
+//}
+
 /* callbackGoto() //{ */
 
 bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
@@ -515,13 +547,15 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
   /* prerequsitioes //{ */
 
-  const bool got_octomap        = sh_octomap_.hasMsg() && (ros::Time::now() - sh_octomap_.lastMsgTime()).toSec() < 2.0;
-  const bool got_position_cmd   = sh_position_cmd_.hasMsg() && (ros::Time::now() - sh_position_cmd_.lastMsgTime()).toSec() < 2.0;
-  const bool got_mpc_prediction = sh_mpc_prediction_.hasMsg() && (ros::Time::now() - sh_mpc_prediction_.lastMsgTime()).toSec() < 2.0;
+  const bool got_octomap              = sh_octomap_.hasMsg() && (ros::Time::now() - sh_octomap_.lastMsgTime()).toSec() < 2.0;
+  const bool got_position_cmd         = sh_position_cmd_.hasMsg() && (ros::Time::now() - sh_position_cmd_.lastMsgTime()).toSec() < 2.0;
+  const bool got_mpc_prediction       = sh_mpc_prediction_.hasMsg() && (ros::Time::now() - sh_mpc_prediction_.lastMsgTime()).toSec() < 2.0;
+  const bool got_control_manager_diag = sh_control_manager_diag_.hasMsg() && (ros::Time::now() - sh_control_manager_diag_.lastMsgTime()).toSec() < 2.0;
 
-  if (!got_octomap || !got_position_cmd || !got_mpc_prediction) {
-    ROS_INFO_THROTTLE(1.0, "[Pathfinder]: waiting for data: octomap = %s, position cmd = %s, MPC prediction = %s", got_octomap ? "TRUE" : "FALSE",
-                      got_position_cmd ? "TRUE" : "FALSE", got_mpc_prediction ? "TRUE" : "FALSE");
+  if (!got_octomap || !got_position_cmd || !got_mpc_prediction || !got_control_manager_diag) {
+    ROS_INFO_THROTTLE(1.0, "[Pathfinder]: waiting for data: octomap = %s, position cmd = %s, MPC prediction = %s, ControlManager diag = %s",
+                      got_octomap ? "TRUE" : "FALSE", got_position_cmd ? "TRUE" : "FALSE", got_mpc_prediction ? "TRUE" : "FALSE",
+                      got_control_manager_diag ? "TRUE" : "FALSE");
     return;
   } else {
     ready_to_plan_ = true;
@@ -531,6 +565,9 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
   const auto [octomap, map_frame] = mrs_lib::get_mutexed(mutex_octomap_, octomap_, octomap_frame_);
   const auto user_goal            = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
+
+  const mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
+
 
   octomap::point3d user_goal_octpoint;
   user_goal_octpoint.x() = user_goal.position.x;
@@ -549,7 +586,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       // get the initial condition
 
-      auto initial_condition = getInitialCondition(ros::Time::now() + ros::Duration(_time_for_trajectory_generator_));
+      auto initial_condition = getInitialCondition(ros::Time::now() + ros::Duration(_timeout_threshold_ + _time_for_trajectory_generator_));
 
       if (!initial_condition) {
         ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition for planning");
@@ -609,7 +646,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       ros::Time path_stamp = initial_condition->header.stamp;
 
-      if (ros::Time::now() > path_stamp) {
+      if (ros::Time::now() > path_stamp || !control_manager_diag->tracker_status.have_goal) {
         path_stamp = ros::Time(0);
       }
 
@@ -617,6 +654,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       srv_get_path.request.path.header.frame_id = octomap_frame_;
       srv_get_path.request.path.header.stamp    = path_stamp;
       srv_get_path.request.path.fly_now         = false;
+      srv_get_path.request.path.relax_heading   = true;
       srv_get_path.request.path.use_heading     = true;
 
       for (auto& w : waypoints.first) {
@@ -787,7 +825,7 @@ std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const 
 
   for (int i = 0; i < prediction_full_state->stamps.size(); i++) {
 
-    if (prediction_full_state->stamps[i] >= time) {
+    if ((prediction_full_state->stamps[i] - time).toSec() > 0) {
       orig_reference.reference.position.x = prediction_full_state->position[i].x;
       orig_reference.reference.position.y = prediction_full_state->position[i].y;
       orig_reference.reference.position.z = prediction_full_state->position[i].z;
