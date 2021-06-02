@@ -614,6 +614,17 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       } else {
 
+        if (waypoints.first.size() < 2) {
+
+          ROS_ERROR("[Pathfinder]: path not found");
+
+          replanning_counter_++;
+
+          changeState(STATE_PLANNING);
+
+          break;
+        }
+
         double front_x = waypoints.first.front().x();
         double front_y = waypoints.first.front().y();
         double front_z = waypoints.first.front().z();
@@ -624,20 +635,22 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         double path_start_end_dist = sqrt(pow(front_x - back_x, 2) + pow(front_y - back_y, 2) + pow(front_z - back_z, 2));
 
-        if (waypoints.first.size() < 2 || path_start_end_dist < 0.5) {
+        if (path_start_end_dist < 0.5) {
 
-          ROS_ERROR("[Pathfinder]: path not found");
+          ROS_ERROR("[Pathfinder]: path too short");
 
           replanning_counter_++;
 
-          if (replanning_counter_ > 5) {
-            ROS_ERROR("[Pathfinder]: planning failed, uav is stuck!");
-            changeState(STATE_IDLE);
-            break;
-          }
-
           changeState(STATE_PLANNING);
 
+          break;
+        }
+
+        if (replanning_counter_ >= 3) {
+
+          ROS_ERROR("[Pathfinder]: planning failed, uav is stuck!");
+
+          changeState(STATE_IDLE);
           break;
         }
       }
@@ -749,8 +762,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
     }
 
       //}
-  }
-}
+  }  // namespace pathfinder
+}  // namespace pathfinder
 
 //}
 

@@ -139,7 +139,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     auto current_coord = tree.keyToCoord(current.key);
     /* std::cout << "Current coord: " << current_coord.x() << ", " << current_coord.y() << ", " << current_coord.z() << std::endl; */
 
-    if (distEuclidean(current_coord, map_goal) < 2*planning_tree_resolution) {
+    if (distEuclidean(current_coord, map_goal) < 4.0*planning_tree_resolution) {
 
       auto path_keys = backtrackPathKeys(current, first, parent_map);
       path_keys.push_back(tree.coordToKey(map_goal));
