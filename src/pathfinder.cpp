@@ -1,5 +1,7 @@
 /* includes //{ */
 
+#include "octomap/OcTree.h"
+#include <memory>
 #include <ros/init.h>
 #include <ros/ros.h>
 #include <ros/package.h>
@@ -78,12 +80,13 @@ private:
   double _endpoint_tolerance_;
   double _min_altitude_;
   double _rate_main_timer_;
+  double _rate_future_check_timer_;
   double _replan_after_;
   bool   _unknown_is_occupied_ = false;
 
-  std::shared_ptr<octomap::OcTree> octomap_;
-  std::string                      octomap_frame_;
-  std::mutex                       mutex_octomap_;
+  std::shared_ptr<octomap::OcTree> octree_;
+  std::string                      octree_frame_;
+  std::mutex                       mutex_octree_;
 
   // visualizer params
   double _points_scale_;
@@ -99,7 +102,7 @@ private:
   std::mutex               mutex_bv_input_;
 
   std::shared_ptr<mrs_lib::BatchVisualizer> bv_planner_;
-  std::mutex                                mutex_bv_planner_;
+  bool                                      bv_planner_frame_set_ = false;
 
   mrs_lib::BatchVisualizer bv_processed_;
   std::mutex               mutex_bv_processed_;
@@ -129,6 +132,9 @@ private:
   // timers
   ros::Timer timer_main_;
   void       timerMain([[maybe_unused]] const ros::TimerEvent& evt);
+
+  ros::Timer timer_future_check_;
+  void       timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt);
 
   // timeouts
   void timeoutOctomap(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
@@ -194,6 +200,7 @@ void Pathfinder::onInit() {
 
   param_loader.loadParam("uav_name", _uav_name_);
   param_loader.loadParam("main_timer/rate", _rate_main_timer_);
+  param_loader.loadParam("future_check_timer/rate", _rate_future_check_timer_);
 
   param_loader.loadParam("euclidean_distance_cutoff", _euclidean_distance_cutoff_);
   param_loader.loadParam("safe_obstacle_distance", _safe_obstacle_distance_);
@@ -221,7 +228,8 @@ void Pathfinder::onInit() {
 
   // | ------------------------- timers ------------------------- |
 
-  timer_main_ = nh_.createTimer(ros::Rate(_rate_main_timer_), &Pathfinder::timerMain, this);
+  timer_main_         = nh_.createTimer(ros::Rate(_rate_main_timer_), &Pathfinder::timerMain, this);
+  timer_future_check_ = nh_.createTimer(ros::Rate(_rate_future_check_timer_), &Pathfinder::timerFutureCheck, this);
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -343,22 +351,21 @@ void Pathfinder::callbackOctomap(mrs_lib::SubscribeHandler<octomap_msgs::Octomap
 
   } else {
 
-    std::scoped_lock lock(mutex_octomap_);
+    std::scoped_lock lock(mutex_octree_);
 
-    octomap_       = std::shared_ptr<octomap::OcTree>(dynamic_cast<octomap::OcTree*>(tree_ptr));
-    octomap_frame_ = octomap->header.frame_id;
+    octree_       = std::shared_ptr<octomap::OcTree>(dynamic_cast<octomap::OcTree*>(tree_ptr));
+    octree_frame_ = octomap->header.frame_id;
+  }
+
+  if (!bv_planner_frame_set_) {
+    bv_planner_->setParentFrame(octomap->header.frame_id);
+    bv_planner_frame_set_ = true;
   }
 
   {
     std::scoped_lock lock(mutex_bv_input_);
 
     bv_input_.setParentFrame(octomap->header.frame_id);
-  }
-
-  {
-    std::scoped_lock lock(mutex_bv_planner_);
-
-    bv_planner_->setParentFrame(octomap->header.frame_id);
   }
 
   {
@@ -487,8 +494,7 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs
   // | -------- transform the reference to the map frame -------- |
 
   {
-    mrs_msgs::PositionCommandConstPtr position_cmd  = sh_position_cmd_.getMsg();
-    auto                              octomap_frame = mrs_lib::get_mutexed(mutex_octomap_, octomap_frame_);
+    mrs_msgs::PositionCommandConstPtr position_cmd = sh_position_cmd_.getMsg();
 
     mrs_msgs::ReferenceStamped reference;
     reference.header.frame_id = position_cmd->header.frame_id;
@@ -498,7 +504,7 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs
     reference.reference.position.z = req.goal[2];
     reference.reference.heading    = req.goal[3];
 
-    auto result = transformer_.transformSingle(octomap_frame, reference);
+    auto result = transformer_.transformSingle(octree_frame_, reference);
 
     if (result) {
 
@@ -508,7 +514,7 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs
 
     } else {
       std::stringstream ss;
-      ss << "could not transform the reference from " << position_cmd->header.frame_id << " to " << octomap_frame;
+      ss << "could not transform the reference from " << position_cmd->header.frame_id << " to " << octree_frame_;
 
       ROS_ERROR_STREAM("[Pathfinder]: " << ss.str());
 
@@ -563,11 +569,18 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
   //}
 
-  const auto [octomap, map_frame] = mrs_lib::get_mutexed(mutex_octomap_, octomap_, octomap_frame_);
-  const auto user_goal            = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
+  ROS_INFO_ONCE("[Pathfinder]: maint timer spinning");
+
+  // copy the octomap locally
+  std::shared_ptr<octomap::OcTree> octree;
+  {
+    std::scoped_lock lock(mutex_octree_);
+    octree = std::make_shared<octomap::OcTree>(*octree_);
+  }
+
+  const auto user_goal = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
 
   const mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
-
 
   octomap::point3d user_goal_octpoint;
   user_goal_octpoint.x() = user_goal.position.x;
@@ -584,9 +597,19 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
     case STATE_PLANNING: {
 
+      if (replanning_counter_ >= 4) {
+
+        ROS_ERROR("[Pathfinder]: planning failed, uav is stuck!");
+
+        changeState(STATE_IDLE);
+        break;
+      }
+
       // get the initial condition
 
-      auto initial_condition = getInitialCondition(ros::Time::now() + ros::Duration(_timeout_threshold_ + _time_for_trajectory_generator_));
+      double time_for_planning = _timeout_threshold_ + pow(1.5, float(replanning_counter_));
+
+      auto initial_condition = getInitialCondition(ros::Time::now() + ros::Duration(time_for_planning + _time_for_trajectory_generator_));
 
       if (!initial_condition) {
         ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition for planning");
@@ -598,14 +621,11 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       plan_from.y() = initial_condition.value().reference.position.y;
       plan_from.z() = initial_condition.value().reference.position.z;
 
-      std::scoped_lock lock(mutex_bv_planner_);
-
       pathfinder::AstarPlanner planner =
           pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
                                    _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _unknown_is_occupied_, bv_planner_);
 
-      std::pair<std::vector<octomap::point3d>, bool> waypoints =
-          planner.findPath(plan_from, user_goal_octpoint, octomap, _timeout_threshold_ * pow(2.0, float(replanning_counter_)));
+      std::pair<std::vector<octomap::point3d>, bool> waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
 
       // path is complete
       if (waypoints.second) {
@@ -645,14 +665,6 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
           break;
         }
-
-        if (replanning_counter_ >= 3) {
-
-          ROS_ERROR("[Pathfinder]: planning failed, uav is stuck!");
-
-          changeState(STATE_IDLE);
-          break;
-        }
       }
 
       time_last_plan_ = ros::Time::now();
@@ -664,7 +676,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       }
 
       mrs_msgs::GetPathSrv srv_get_path;
-      srv_get_path.request.path.header.frame_id = octomap_frame_;
+      srv_get_path.request.path.header.frame_id = octree_frame_;
       srv_get_path.request.path.header.stamp    = path_stamp;
       srv_get_path.request.path.fly_now         = false;
       srv_get_path.request.path.relax_heading   = true;
@@ -745,7 +757,11 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_);
 
-      if ((initial_pos - user_goal_octpoint).norm() < _endpoint_tolerance_) {
+      double dist_to_goal = (initial_pos - user_goal_octpoint).norm();
+
+      ROS_INFO_THROTTLE(1.0, "[Pathfinder]: dist to goal: %.2f m", dist_to_goal);
+
+      if (dist_to_goal < _endpoint_tolerance_) {
         ROS_INFO("[Pathfinder]: user goal reached");
         changeState(STATE_IDLE);
         break;
@@ -762,8 +778,66 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
     }
 
       //}
-  }  // namespace pathfinder
-}  // namespace pathfinder
+  }
+}
+
+//}
+
+/* timerFutureCheck() //{ */
+
+void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
+
+  if (!is_initialized_) {
+    return;
+  }
+
+  /* preconditions //{ */
+
+  if (!sh_control_manager_diag_.hasMsg()) {
+    return;
+  }
+
+  if (!sh_octomap_.hasMsg()) {
+    return;
+  }
+
+  if (!sh_mpc_prediction_.hasMsg()) {
+    return;
+  }
+
+  //}
+
+  ROS_INFO_ONCE("[Pathfinder]: future check timer spinning");
+
+  // | ----------- check if the prediction is feasible ---------- |
+
+  // copy the octomap locally
+  std::shared_ptr<octomap::OcTree> octree;
+  {
+    std::scoped_lock lock(mutex_octree_);
+    octree = std::make_shared<octomap::OcTree>(*octree_);
+  }
+
+  mrs_msgs::MpcPredictionFullStateConstPtr    prediction           = sh_mpc_prediction_.getMsg();
+  mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
+
+  if (control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
+
+    for (int i = 0; i < prediction->position.size(); i++) {
+
+      octomap::point3d   point(prediction->position[i].x, prediction->position[i].y, prediction->position[i].z);
+      octomap::OcTreeKey key  = octree->coordToKey(point);
+      auto               node = octree->search(key);
+
+      if (!node || node->getValue() > 0.5) {
+
+        ROS_ERROR("[Pathfinder]: future check failed, hovering!");
+        hover();
+        break;
+      }
+    }
+  }
+}
 
 //}
 
@@ -809,6 +883,13 @@ void Pathfinder::changeState(const State_t new_state) {
 
   switch (new_state) {
 
+    case STATE_PLANNING: {
+
+      if (old_state == STATE_IDLE) {
+        replanning_counter_ = 0;
+      }
+    }
+
     default: {
 
       break;
@@ -844,14 +925,13 @@ std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const 
       orig_reference.reference.position.z = prediction_full_state->position[i].z;
       orig_reference.reference.heading    = prediction_full_state->heading[i];
       orig_reference.header.stamp         = prediction_full_state->stamps[i];
+      break;
     }
   }
 
   // transform the initial condition to the current map frame
 
-  auto octomap_frame = mrs_lib::get_mutexed(mutex_octomap_, octomap_frame_);
-
-  auto result = transformer_.transformSingle(octomap_frame, orig_reference);
+  auto result = transformer_.transformSingle(octree_frame_, orig_reference);
 
   if (result) {
 

@@ -139,7 +139,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     auto current_coord = tree.keyToCoord(current.key);
     /* std::cout << "Current coord: " << current_coord.x() << ", " << current_coord.y() << ", " << current_coord.z() << std::endl; */
 
-    if (distEuclidean(current_coord, map_goal) < 4.0*planning_tree_resolution) {
+    if (distEuclidean(current_coord, map_goal) < 2.0 * planning_tree_resolution) {
 
       auto path_keys = backtrackPathKeys(current, first, parent_map);
       path_keys.push_back(tree.coordToKey(map_goal));
@@ -161,14 +161,19 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
       auto ncoord = tree.keyToCoord(nkey);
       Node n;
       n.key = nkey;
-      // check if open
+
       auto open_query = open.find(n);
-      if (open_query != open.end()) {
+      auto closed_query = closed.find(n);
+
+      // check if open
+      if (open_query != open.end() && closed_query == closed.end()) {
+
         // in open map
 
         n.goal_dist  = distEuclidean(nkey, goal, tree);
         n.cum_dist   = current.cum_dist + distEuclidean(current.key, nkey, tree);
         n.total_cost = n.goal_dist + n.cum_dist;
+
         if (n < best_node) {
           best_node = n;
         }
@@ -186,17 +191,18 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
       }
 
       // check if closed
-      auto closed_query = closed.find(n);
-
       if (closed_query == closed.end()) {
 
         // not in closed map -> open
         n.goal_dist  = distEuclidean(nkey, goal, tree);
         n.cum_dist   = current.cum_dist + distEuclidean(current.key, nkey, tree);
         n.total_cost = distance_penalty * n.cum_dist + greedy_penalty * n.goal_dist;
+
         if (n < best_node) {
+
           best_node = n;
         }
+
         open.insert(n);
         parent_map[n] = current;
       }
@@ -329,7 +335,8 @@ std::vector<octomap::OcTreeKey> AstarPlanner::backtrackPathKeys(const Node &from
   Node current = from;
   keys.push_back(current.key);
 
-  while (current != to) {
+  while (current.key != to.key) {
+    ROS_INFO_THROTTLE(1.0, "[%s]: backtracking", ros::this_node::getName().c_str());
     current = parent_map.find(current)->second;  // get parent
     keys.push_back(current.key);
   };

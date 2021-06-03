@@ -1,6 +1,8 @@
-# general
 main_timer:
   rate: 20.0 # [Hz]
+
+future_check_timer:
+  rate: 5.0 # [Hz]
 
 # planning
 planning_tree_resolution: 1.00 # [m] voxel edge size
@@ -9,7 +11,7 @@ euclidean_distance_cutoff: 1.2 # [m]
 safe_obstacle_distance: 1.5 # [m]
 distance_penalty: 1.0
 greedy_penalty: 1.0
-endpoint_tolerance: 1.0 # [m]
+endpoint_tolerance: 2.0 # [m]
 max_waypoint_distance: 1.0 # [m]
 min_altitude: 0.9 # [m]
 unknown_is_occupied: false
