@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <vector>
 #include <octomap/octomap.h>
+#include <queue>
 #include <dynamicEDT3D/dynamicEDTOctomap.h>
 
 #include <mrs_lib/batch_visualizer.h>
@@ -109,7 +110,7 @@ private:
 
   void visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupied);
 
-  void visualizeExpansions(std::set<Node, CostComparator> open, std::unordered_set<Node, HashFunction> closed, octomap::OcTree &tree);
+  void visualizeExpansions(const std::unordered_set<Node, HashFunction> &open, const std::unordered_set<Node, HashFunction> &closed, octomap::OcTree &tree);
 };
 
 }  // namespace pathfinder

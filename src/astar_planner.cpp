@@ -23,10 +23,10 @@ bool Node::operator<(const Node &other) const {
 bool CostComparator::operator()(const Node &n1, const Node &n2) const {
 
   if (n1.total_cost == n2.total_cost) {
-    return n1.goal_dist < n2.goal_dist;
+    return n1.goal_dist > n2.goal_dist;
   }
 
-  return n1.total_cost < n2.total_cost;
+  return n1.total_cost > n2.total_cost;
 }
 
 bool HashFunction::operator()(const Node &n) const {
@@ -63,7 +63,6 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   ROS_INFO("[%s]: Astar: user goal [%.2f, %.2f, %.2f]", ros::this_node::getName().c_str(), goal_coord.x(), goal_coord.y(), goal_coord.z());
 
-  bv->clearBuffers();
   auto time_start = ros::Time::now();
 
   this->timeout_threshold = timeout;
@@ -92,9 +91,10 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   bv->addCuboid(c_start, 0.9, 0.6, 0.1, 1);
   bv->addCuboid(c_goal, 0.1, 0.9, 0.6, 1);
 
-  std::set<Node, CostComparator>               open;
-  std::unordered_set<Node, HashFunction>       closed;
-  std::unordered_map<Node, Node, HashFunction> parent_map;  // first = child, second = parent
+  std::priority_queue<Node, std::vector<Node>, CostComparator> open_heap;
+  std::unordered_set<Node, HashFunction>                       open;
+  std::unordered_set<Node, HashFunction>                       closed;
+  std::unordered_map<Node, Node, HashFunction>                 parent_map;  // first = child, second = parent
 
   octomap::OcTreeKey start;
   if (tunnel.empty()) {
@@ -114,15 +114,23 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   first.cum_dist   = 0;
   first.goal_dist  = distEuclidean(start, goal, tree);
   first.total_cost = first.cum_dist + first.goal_dist;
+  open_heap.push(first);
   open.insert(first);
 
   Node best_node = first;
 
+  int iter = 0;
+
+  Node last_closed;
+
   while (!open.empty() && ros::ok()) {
 
-    Node current = *open.begin();
+    Node current = open_heap.top();
+    open_heap.pop();
     open.erase(current);
     closed.insert(current);
+
+    last_closed = current;
 
     auto time_now = ros::Time::now();
 
@@ -132,7 +140,11 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
       auto path_keys = backtrackPathKeys(best_node == first ? current : best_node, first, parent_map);
       ROS_INFO("[%s]: Path found. Length: %ld", ros::this_node::getName().c_str(), path_keys.size());
 
+      bv->clearVisuals();
+      bv->clearBuffers();
+      /* visualizeTreeCubes(tree, true); */
       visualizeExpansions(open, closed, tree);
+      bv->publish();
 
       return std::make_pair(prepareOutputPath(path_keys, tree), false);
     }
@@ -146,7 +158,11 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
       path_keys.push_back(tree.coordToKey(map_goal));
       ROS_INFO("[%s]: Path found. Length: %ld", ros::this_node::getName().c_str(), path_keys.size());
 
+      bv->clearVisuals();
+      bv->clearBuffers();
+      /* visualizeTreeCubes(tree, true); */
       visualizeExpansions(open, closed, tree);
+      bv->publish();
 
       return {prepareOutputPath(path_keys, tree), true};
     }
@@ -154,34 +170,52 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     // expand
     auto neighbors = getNeighborhood(current.key, tree);
 
+    /* ROS_INFO_STREAM("poped " << current.key.k); */
+    /* ROS_INFO("[%s]: iter %d, open %d, closed %d, neighbours %d", ros::this_node::getName().c_str(), iter++, open.size(), closed.size(), neighbors.size()); */
+
     for (auto &nkey : neighbors) {
+
+      /* ROS_INFO_STREAM("key" << nkey.k); */
 
       auto ncoord = tree.keyToCoord(nkey);
       Node n;
       n.key = nkey;
 
-      auto open_query   = open.find(n);
       auto closed_query = closed.find(n);
+      auto open_query   = open.find(n);
 
-      // not in closed
-      if (closed_query == closed.end()) {
+      // in open map
+      n.goal_dist  = distEuclidean(nkey, goal, tree);
+      n.cum_dist   = current.cum_dist + distEuclidean(current.key, nkey, tree);
+      n.total_cost = greedy_penalty * n.goal_dist + distance_penalty * n.cum_dist;
 
-        // in open map
-        n.goal_dist  = distEuclidean(nkey, goal, tree);
-        n.cum_dist   = current.cum_dist + distEuclidean(current.key, nkey, tree);
-        n.total_cost = greedy_penalty * n.goal_dist + distance_penalty * n.cum_dist;
+      if (closed_query == closed.end() && open_query == open.end()) {
 
         if (n < best_node) {
           best_node = n;
         }
 
+        open_heap.push(n);
         open.insert(n);
         parent_map[n] = current;
       }
     }
   }
 
+  bv->clearVisuals();
+  bv->clearBuffers();
+  /* visualizeTreeCubes(tree, true); */
   visualizeExpansions(open, closed, tree);
+  bv->publish();
+
+  /* if (last_closed != first) { */
+
+  /*   auto path_keys = backtrackPathKeys(last_closed, first, parent_map); */
+
+  /*   std::cout << "direct path does not exist, goint somewhere" << std::endl; */
+
+  /*   return std::make_pair(prepareOutputPath(path_keys, tree), false); */
+  /* } */
 
   std::cout << "PATH DOES NOT EXIST!" << std::endl;
 
@@ -240,21 +274,23 @@ octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std
   k.k[1] = key.k[1] + direction[1];
   k.k[2] = key.k[2] + direction[2];
 
-  // expand outward until a new octree node is reached
-  auto tree_query = tree.search(k);
-
-  int i = 1;
-
-  while (tree.search(k) == prev_node) {
-
-    ++i;
-
-    k.k[0] = key.k[0] + i * direction[0];
-    k.k[1] = key.k[1] + i * direction[1];
-    k.k[2] = key.k[2] + i * direction[2];
-  }
-
   return k;
+
+  /* // expand outward until a new octree node is reached */
+  /* auto tree_query = tree.search(k); */
+
+  /* int i = 1; */
+
+  /* while (tree.search(k) == prev_node) { */
+
+  /*   ++i; */
+
+  /*   k.k[0] = key.k[0] + i * direction[0]; */
+  /*   k.k[1] = key.k[1] + i * direction[1]; */
+  /*   k.k[2] = key.k[2] + i * direction[2]; */
+  /* } */
+
+  /* return k; */
 }
 //}
 
@@ -510,11 +546,6 @@ std::vector<octomap::point3d> AstarPlanner::prepareOutputPath(const std::vector<
     bv->addRay(mrs_lib::geometry::Ray::twopointCast(w0, w1), 0.4, 0.4, 1.0, 1);
   }
 
-  // visualize tree
-  /* visualizeTreeCubes(tree, false); */
-
-  bv->publish();
-
   return processed;
 }
 //}
@@ -532,15 +563,14 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
     mrs_lib::geometry::Cuboid c(center, size, orientation);
 
     if (it->getValue() == TreeValue::OCCUPIED) {
-      bv->addCuboid(c, 0.7, 0.7, 0.7, 1.0, true);
-      bv->addCuboid(c, 0, 0, 0, 1.0, false);
+      bv->addCuboid(c, 0.2, 1.0, 0.2, 0.5, true);
+      /* bv->addCuboid(c, 0, 0, 0, 0.3, false); */
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 0.8, true); */
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 1.0, false); */
-      continue;
     }
 
     if (show_unoccupied && it->getValue() == TreeValue::FREE) {
-      /* bv->addCuboid(c, 0.8, 0.8, 0.8, 1.0, false); */
+      /* bv->addCuboid(c, 0.5, 0.5, 0.5, 0.5, true); */
     }
   }
 }
@@ -558,7 +588,6 @@ void AstarPlanner::visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupi
     if (it->getValue() == TreeValue::OCCUPIED) {
       bv->addPoint(p, 0.1, 0.1, 0.1, 1.0);
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 1.0, false); */
-      continue;
     }
 
     if (show_unoccupied && it->getValue() == TreeValue::FREE) {
@@ -571,7 +600,8 @@ void AstarPlanner::visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupi
 
 /* visualizeExpansions() //{ */
 
-void AstarPlanner::visualizeExpansions(std::set<Node, CostComparator> open, std::unordered_set<Node, HashFunction> closed, octomap::OcTree &tree) {
+void AstarPlanner::visualizeExpansions(const std::unordered_set<Node, HashFunction> &open, const std::unordered_set<Node, HashFunction> &closed,
+                                       octomap::OcTree &tree) {
 
   for (auto &n : open) {
     auto            coord = tree.keyToCoord(n.key);
@@ -584,7 +614,6 @@ void AstarPlanner::visualizeExpansions(std::set<Node, CostComparator> open, std:
     Eigen::Vector3d p(coord.x(), coord.y(), coord.z());
     bv->addPoint(p, 1.0, 0.2, 0.2, 0.3);
   }
-
 }
 
 //}

@@ -581,6 +581,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
   const auto user_goal = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
 
   const mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
+  const mrs_msgs::PositionCommandConstPtr           position_cmd         = sh_position_cmd_.getMsg();
 
   octomap::point3d user_goal_octpoint;
   user_goal_octpoint.x() = user_goal.position.x;
@@ -597,7 +598,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
     case STATE_PLANNING: {
 
-      if (replanning_counter_ >= 4) {
+      if (replanning_counter_ >= 3) {
 
         ROS_ERROR("[Pathfinder]: planning failed, uav is stuck!");
 
@@ -607,7 +608,13 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       // get the initial condition
 
-      double time_for_planning = _timeout_threshold_ + pow(1.5, float(replanning_counter_));
+      double time_for_planning;
+
+      if (control_manager_diag->tracker_status.have_goal) {
+        time_for_planning = _timeout_threshold_;
+      } else {
+        time_for_planning = _timeout_threshold_ + pow(1.5, float(replanning_counter_));
+      }
 
       auto initial_condition = getInitialCondition(ros::Time::now() + ros::Duration(time_for_planning + _time_for_trajectory_generator_));
 
@@ -684,7 +691,9 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       ros::Time path_stamp = initial_condition->header.stamp;
 
-      if (ros::Time::now() > path_stamp || !control_manager_diag->tracker_status.have_goal) {
+      bool moving = fabs(position_cmd->velocity.x) > 0.5 || fabs(position_cmd->velocity.y) > 0.5 || fabs(position_cmd->velocity.z) > 0.5;
+
+      if (ros::Time::now() > path_stamp || !control_manager_diag->tracker_status.have_goal || !moving) {
         path_stamp = ros::Time(0);
       }
 

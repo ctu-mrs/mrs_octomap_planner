@@ -17,10 +17,10 @@ endpoint_tolerance: 2.0 # [m]
 max_waypoint_distance: 3.0 # [m] // or set negative for no padding
 min_altitude: 0.9 # [m]
 unknown_is_occupied: false
-replan_after: 0.1 # [s]
+replan_after: 1.0 # [s]
 
 timeout_threshold: 2.0 # [s]
-time_for_trajectory_generator: 0.3 # [s]
+time_for_trajectory_generator: 1.0 # [s]
 
 # visualization
 points_scale: 0.22
