@@ -116,20 +116,22 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   while (!open.empty() && ros::ok()) {
 
+    auto current = *open.begin();
+    open.erase(current);
+    closed.insert(current);
+
     auto time_now = ros::Time::now();
 
     if (time_now.toSec() - time_start.toSec() > timeout_threshold) {
 
       ROS_WARN("[%s]: Planning timeout! Using current best node as goal.", ros::this_node::getName().c_str());
-      auto path_keys = backtrackPathKeys(best_node, first, parent_map);
+      auto path_keys = backtrackPathKeys(best_node == first ? current : best_node, first, parent_map);
       ROS_INFO("[%s]: Path found. Length: %ld", ros::this_node::getName().c_str(), path_keys.size());
+
+      visualizeExpansions(open, closed, tree);
 
       return std::make_pair(prepareOutputPath(path_keys, tree), false);
     }
-
-    auto current = *open.begin();
-    open.erase(current);
-    closed.insert(current);
 
     auto current_coord = tree.keyToCoord(current.key);
     /* std::cout << "Current coord: " << current_coord.x() << ", " << current_coord.y() << ", " << current_coord.z() << std::endl; */
@@ -139,6 +141,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
       auto path_keys = backtrackPathKeys(current, first, parent_map);
       path_keys.push_back(tree.coordToKey(map_goal));
       ROS_INFO("[%s]: Path found. Length: %ld", ros::this_node::getName().c_str(), path_keys.size());
+
+      visualizeExpansions(open, closed, tree);
 
       return {prepareOutputPath(path_keys, tree), true};
     }
@@ -155,40 +159,15 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
       auto open_query   = open.find(n);
       auto closed_query = closed.find(n);
 
-      // check if open
-      if (open_query != open.end() && closed_query == closed.end()) {
+      // not in closed
+      if (closed_query == closed.end()) {
 
         // in open map
         n.goal_dist  = distEuclidean(nkey, goal, tree);
         n.cum_dist   = current.cum_dist + distEuclidean(current.key, nkey, tree);
-        n.total_cost = n.goal_dist + n.cum_dist;
+        n.total_cost = greedy_penalty * n.goal_dist + distance_penalty * n.cum_dist;
 
         if (n < best_node) {
-          best_node = n;
-        }
-
-        if (n < current) {
-          // new path is better -> update
-          Node open_node = *open_query;
-          open.erase(open_node);
-          parent_map.erase(open_node);
-
-          open.insert(n);
-          parent_map[n] = current;
-          continue;
-        }
-      }
-
-      // check if closed
-      if (closed_query == closed.end()) {
-
-        // not in closed map -> open
-        n.goal_dist  = distEuclidean(nkey, goal, tree);
-        n.cum_dist   = current.cum_dist + distEuclidean(current.key, nkey, tree);
-        n.total_cost = distance_penalty * n.cum_dist + greedy_penalty * n.goal_dist;
-
-        if (n < best_node) {
-
           best_node = n;
         }
 
@@ -245,7 +224,7 @@ std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcT
 
 /* expand() //{ */
 
-octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std::vector<int> & direction, octomap::OcTree &tree) {
+octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std::vector<int> &direction, octomap::OcTree &tree) {
 
   auto prev_node = tree.search(key);
 
@@ -308,7 +287,7 @@ bool AstarPlanner::freeStraightPath(const octomap::point3d p1, const octomap::po
       // Path goes through occupied cells
       return false;
     }
-    if(max_waypoint_distance > 0 && (p1-p2).norm() > max_waypoint_distance){
+    if (max_waypoint_distance > 0 && (p1 - p2).norm() > max_waypoint_distance) {
       return false;
     }
   }
@@ -526,7 +505,7 @@ std::vector<octomap::point3d> AstarPlanner::prepareOutputPath(const std::vector<
   }
 
   // visualize tree
-  visualizeTreeCubes(tree, false);
+  /* visualizeTreeCubes(tree, false); */
 
   bv->publish();
 
@@ -591,15 +570,17 @@ void AstarPlanner::visualizeExpansions(std::set<Node, CostComparator> open, std:
   for (auto &n : open) {
     auto            coord = tree.keyToCoord(n.key);
     Eigen::Vector3d p(coord.x(), coord.y(), coord.z());
-    bv->addPoint(p, 0.2, 1.0, 0.2, 1.0);
+    bv->addPoint(p, 0.2, 1.0, 0.2, 0.3);
   }
 
   for (auto &n : closed) {
     auto            coord = tree.keyToCoord(n.key);
     Eigen::Vector3d p(coord.x(), coord.y(), coord.z());
-    bv->addPoint(p, 1.0, 0.2, 0.2, 1.0);
+    bv->addPoint(p, 1.0, 0.2, 0.2, 0.3);
   }
+
 }
+
 //}
 
 /* generateTemporaryGoal() //{ */

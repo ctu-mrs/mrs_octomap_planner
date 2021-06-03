@@ -569,7 +569,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
   //}
 
-  ROS_INFO_ONCE("[Pathfinder]: maint timer spinning");
+  ROS_INFO_ONCE("[Pathfinder]: main timer spinning");
 
   // copy the octomap locally
   std::shared_ptr<octomap::OcTree> octree;
@@ -655,7 +655,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         double path_start_end_dist = sqrt(pow(front_x - back_x, 2) + pow(front_y - back_y, 2) + pow(front_z - back_z, 2));
 
-        if (path_start_end_dist < 0.5) {
+        if (path_start_end_dist < 0.1) {
 
           ROS_ERROR("[Pathfinder]: path too short");
 
@@ -672,8 +672,14 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       {
         std::scoped_lock lock(mutex_initial_condition_);
 
-        initial_pos_     = plan_from;
-        initial_heading_ = initial_condition->reference.heading;
+        // TODO should be transformed into the map frame
+
+        mrs_msgs::PositionCommandConstPtr position_cmd = sh_position_cmd_.getMsg();
+
+        initial_pos_.x() = position_cmd->position.x;
+        initial_pos_.y() = position_cmd->position.y;
+        initial_pos_.z() = position_cmd->position.z;
+        initial_heading_ = position_cmd->heading;
       }
 
       ros::Time path_stamp = initial_condition->header.stamp;
