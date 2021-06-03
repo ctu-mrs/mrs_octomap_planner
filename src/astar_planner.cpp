@@ -12,16 +12,20 @@ bool Node::operator!=(const Node &other) const {
 }
 
 bool Node::operator<(const Node &other) const {
+
   if (total_cost == other.total_cost) {
     return goal_dist < other.goal_dist;
   }
+
   return total_cost < other.total_cost;
 }
 
 bool CostComparator::operator()(const Node &n1, const Node &n2) const {
+
   if (n1.total_cost == n2.total_cost) {
     return n1.goal_dist < n2.goal_dist;
   }
+
   return n1.total_cost < n2.total_cost;
 }
 
@@ -116,7 +120,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   while (!open.empty() && ros::ok()) {
 
-    auto current = *open.begin();
+    Node current = *open.begin();
     open.erase(current);
     closed.insert(current);
 
@@ -176,6 +180,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
       }
     }
   }
+
+  visualizeExpansions(open, closed, tree);
 
   std::cout << "PATH DOES NOT EXIST!" << std::endl;
 

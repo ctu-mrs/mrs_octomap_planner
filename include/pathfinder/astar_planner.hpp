@@ -73,14 +73,14 @@ public:
 
 private:
   const std::vector<std::vector<int>> EXPANSION_DIRECTIONS = {{-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {-1, 0, -1}, {-1, 0, 0}, {-1, 0, 1}, {-1, 1, -1},
-                                                    {-1, 1, 0},   {-1, 1, 1},  {0, -1, -1}, {0, -1, 0},  {0, -1, 1}, {0, 0, -1}, {0, 0, 1},
-                                                    {0, 1, -1},   {0, 1, 0},   {0, 1, 1},   {1, -1, -1}, {1, -1, 0}, {1, -1, 1}, {1, 0, -1},
-                                                    {1, 0, 0},    {1, 0, 1},   {1, 1, -1},  {1, 1, 0},   {1, 1, 1}};
-  double                    getNodeDepth(const octomap::OcTreeKey &key, octomap::OcTree &tree);
+                                                              {-1, 1, 0},   {-1, 1, 1},  {0, -1, -1}, {0, -1, 0},  {0, -1, 1}, {0, 0, -1}, {0, 0, 1},
+                                                              {0, 1, -1},   {0, 1, 0},   {0, 1, 1},   {1, -1, -1}, {1, -1, 0}, {1, -1, 1}, {1, 0, -1},
+                                                              {1, 0, 0},    {1, 0, 1},   {1, 1, -1},  {1, 1, 0},   {1, 1, 1}};
+  double                              getNodeDepth(const octomap::OcTreeKey &key, octomap::OcTree &tree);
 
   std::vector<octomap::OcTreeKey> getNeighborhood(const octomap::OcTreeKey &key, octomap::OcTree &tree);
 
-  octomap::OcTreeKey expand(const octomap::OcTreeKey &key, const std::vector<int> & direction, octomap::OcTree &tree);
+  octomap::OcTreeKey expand(const octomap::OcTreeKey &key, const std::vector<int> &direction, octomap::OcTree &tree);
 
   double distEuclidean(const octomap::point3d &p1, const octomap::point3d &p2);
 

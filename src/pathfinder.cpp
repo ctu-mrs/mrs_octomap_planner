@@ -842,7 +842,7 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
       octomap::OcTreeKey key  = octree->coordToKey(point);
       auto               node = octree->search(key);
 
-      if (!node || node->getValue() > 0.5) {
+      if (!node || octree->isNodeOccupied(node)) {
 
         ROS_ERROR("[Pathfinder]: future check failed, hovering!");
         hover();
