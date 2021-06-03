@@ -69,11 +69,6 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   auto tree   = tree_with_tunnel.first;
   auto tunnel = tree_with_tunnel.second;
 
-  /* std::vector<octomap::OcTreeKey> leaf_keys; */
-  /* for (auto it = tree.begin_leafs(); it != tree.end_leafs(); it++) { */
-  /*   leaf_keys.push_back(it.getKey()); */
-  /* } */
-
   auto map_goal  = goal_coord;
   auto map_query = mapping_tree->search(goal_coord);
 
@@ -153,23 +148,17 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     for (auto &nkey : neighbors) {
 
-      /* if (std::find(leaf_keys.begin(), leaf_keys.end(), nkey) != leaf_keys.end()) { */
-      /*   // skip leafs */
-      /*   continue; */
-      /* } */
-
       auto ncoord = tree.keyToCoord(nkey);
       Node n;
       n.key = nkey;
 
-      auto open_query = open.find(n);
+      auto open_query   = open.find(n);
       auto closed_query = closed.find(n);
 
       // check if open
       if (open_query != open.end() && closed_query == closed.end()) {
 
         // in open map
-
         n.goal_dist  = distEuclidean(nkey, goal, tree);
         n.cum_dist   = current.cum_dist + distEuclidean(current.key, nkey, tree);
         n.total_cost = n.goal_dist + n.cum_dist;
@@ -256,16 +245,15 @@ std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcT
 
 /* expand() //{ */
 
-octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const octomap::point3d &direction, octomap::OcTree &tree) {
+octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std::vector<int> & direction, octomap::OcTree &tree) {
 
   auto prev_node = tree.search(key);
 
   octomap::OcTreeKey k;
 
-  // TODO key.k[*] seems to be int !!
-  k.k[0] = key.k[0] + direction.x();
-  k.k[1] = key.k[1] + direction.y();
-  k.k[2] = key.k[2] + direction.z();
+  k.k[0] = key.k[0] + direction[0];
+  k.k[1] = key.k[1] + direction[1];
+  k.k[2] = key.k[2] + direction[2];
 
   // expand outward until a new octree node is reached
   auto tree_query = tree.search(k);
@@ -276,10 +264,9 @@ octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const oct
 
     ++i;
 
-    // TODO key.k[*] seems to be int !!
-    k.k[0] = key.k[0] + i * direction.x();
-    k.k[1] = key.k[1] + i * direction.y();
-    k.k[2] = key.k[2] + i * direction.z();
+    k.k[0] = key.k[0] + i * direction[0];
+    k.k[1] = key.k[1] + i * direction[1];
+    k.k[2] = key.k[2] + i * direction[2];
   }
 
   return k;
@@ -316,8 +303,12 @@ bool AstarPlanner::freeStraightPath(const octomap::point3d p1, const octomap::po
     if (tree_node == NULL) {
       // Path may exist, but goes through unknown cells
       return false;
-    } else if (tree_node->getValue() == TreeValue::OCCUPIED) {
+    }
+    if (tree_node->getValue() == TreeValue::OCCUPIED) {
       // Path goes through occupied cells
+      return false;
+    }
+    if(max_waypoint_distance > 0 && (p1-p2).norm() > max_waypoint_distance){
       return false;
     }
   }
@@ -482,7 +473,7 @@ std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<oc
 
   /* padding with additional points if the distances exceed threshold //{ */
   for (int i = 1; i < waypoints_size; i++) {
-    if (distEuclidean(padded[i], padded[i - 1]) > max_waypoint_distance) {
+    if (max_waypoint_distance > 0 && distEuclidean(padded[i], padded[i - 1]) > max_waypoint_distance) {
       auto direction = (padded[i] - padded[i - 1]).normalized() * max_waypoint_distance;
       padded.insert(padded.begin() + i, padded[i - 1] + direction);
       waypoints_size++;
