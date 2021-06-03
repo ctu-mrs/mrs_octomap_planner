@@ -669,6 +669,13 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       time_last_plan_ = ros::Time::now();
 
+      {
+        std::scoped_lock lock(mutex_initial_condition_);
+
+        initial_pos_     = plan_from;
+        initial_heading_ = initial_condition->reference.heading;
+      }
+
       ros::Time path_stamp = initial_condition->header.stamp;
 
       if (ros::Time::now() > path_stamp || !control_manager_diag->tracker_status.have_goal) {
