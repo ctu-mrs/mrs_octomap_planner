@@ -1,11 +1,13 @@
 /* includes //{ */
 
-#include "octomap/OcTree.h"
+#include "mrs_msgs/TrajectoryReference.h"
 #include <memory>
 #include <ros/init.h>
 #include <ros/ros.h>
 #include <ros/package.h>
 #include <nodelet/nodelet.h>
+
+#include <octomap/OcTree.h>
 
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
@@ -27,6 +29,7 @@
 
 #include <mrs_msgs/PositionCommand.h>
 #include <mrs_msgs/Vec4.h>
+#include <mrs_msgs/ReferenceStampedSrv.h>
 #include <mrs_msgs/GetPathSrv.h>
 #include <mrs_msgs/MpcPredictionFullState.h>
 #include <mrs_msgs/TrajectoryReferenceSrv.h>
@@ -120,9 +123,11 @@ private:
 
   // service servers
   ros::ServiceServer service_server_goto_;
+  ros::ServiceServer service_server_reference_;
 
   // service server callbacks
   bool callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res);
+  bool callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res);
 
   // service clients
   mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>             sc_get_trajectory_;
@@ -261,7 +266,8 @@ void Pathfinder::onInit() {
 
   // | --------------------- service servers -------------------- |
 
-  service_server_goto_ = nh_.advertiseService("goto_in", &Pathfinder::callbackGoto, this);
+  service_server_goto_      = nh_.advertiseService("goto_in", &Pathfinder::callbackGoto, this);
+  service_server_reference_ = nh_.advertiseService("reference_in", &Pathfinder::callbackReference, this);
 
   // | ----------------------- transformer ---------------------- |
 
@@ -541,6 +547,75 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs
 
 //}
 
+/* callbackReference() //{ */
+
+bool Pathfinder::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res) {
+
+  /* prerequisities //{ */
+
+  if (!is_initialized_) {
+    return false;
+  }
+
+  if (!ready_to_plan_) {
+    std::stringstream ss;
+    ss << "not ready to plan, missing data";
+
+    ROS_ERROR_STREAM("[Pathfinder]: " << ss.str());
+
+    res.success = false;
+    res.message = ss.str();
+    return true;
+  }
+
+  //}
+
+  // | -------- transform the reference to the map frame -------- |
+
+  {
+    mrs_msgs::PositionCommandConstPtr position_cmd = sh_position_cmd_.getMsg();
+
+    mrs_msgs::ReferenceStamped reference;
+    reference.header    = req.header;
+    reference.reference = req.reference;
+
+    auto result = transformer_.transformSingle(octree_frame_, reference);
+
+    if (result) {
+
+      std::scoped_lock lock(mutex_user_goal_);
+
+      user_goal_ = result.value().reference;
+
+    } else {
+      std::stringstream ss;
+      ss << "could not transform the reference from " << position_cmd->header.frame_id << " to " << octree_frame_;
+
+      ROS_ERROR_STREAM("[Pathfinder]: " << ss.str());
+
+      res.success = false;
+      res.message = ss.str();
+      return true;
+    }
+  }
+
+  changeState(STATE_PLANNING);
+
+  {
+    std::scoped_lock lock(mutex_bv_input_, mutex_user_goal_);
+
+    bv_input_.clearBuffers();
+    bv_input_.addPoint(Eigen::Vector3d(user_goal_.position.x, user_goal_.position.y, user_goal_.position.z));
+    bv_input_.publish();
+  }
+
+  res.success = true;
+  res.message = "reference set";
+  return true;
+}
+
+//}
+
 // | ------------------------- timers ------------------------- |
 
 /* timerMain() //{ */
@@ -760,7 +835,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           ROS_ERROR("[Pathfinder]: service call for trajectory reference failed");
           break;
         } else {
-          if (!srv_get_path.response.success) {
+          if (!srv_trajectory_reference.response.success) {
             ROS_ERROR("[Pathfinder]: service call for trajectory reference failed: '%s'", srv_get_path.response.message.c_str());
             break;
           }
@@ -835,9 +910,11 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
 
   // copy the octomap locally
   std::shared_ptr<octomap::OcTree> octree;
+  std::string                      octree_frame;
   {
     std::scoped_lock lock(mutex_octree_);
-    octree = std::make_shared<octomap::OcTree>(*octree_);
+    octree       = std::make_shared<octomap::OcTree>(*octree_);
+    octree_frame = octree_frame_;
   }
 
   mrs_msgs::MpcPredictionFullStateConstPtr    prediction           = sh_mpc_prediction_.getMsg();
@@ -845,15 +922,92 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
 
   if (control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
 
-    for (int i = 0; i < prediction->position.size(); i++) {
+    mrs_lib::TransformStamped tf;
 
-      octomap::point3d   point(prediction->position[i].x, prediction->position[i].y, prediction->position[i].z);
-      octomap::OcTreeKey key  = octree->coordToKey(point);
-      auto               node = octree->search(key);
+    auto ret = transformer_.getTransform(prediction->header.frame_id, octree_frame, prediction->header.stamp);
 
-      if (!node || octree->isNodeOccupied(node)) {
+    if (!ret) {
+      ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not transform position cmd to the map frame! can not check for potential collisions!");
+      return;
+    }
 
-        ROS_ERROR("[Pathfinder]: future check failed, hovering!");
+    // prepare the potential future trajectory
+
+    mrs_msgs::TrajectoryReference trajectory;
+    trajectory.header.stamp    = ret.value().stamp();
+    trajectory.header.frame_id = ret.value().to();
+    trajectory.fly_now         = true;
+    trajectory.use_heading     = true;
+    trajectory.dt              = 0.2;
+
+    for (int i = 1; i < prediction->position.size(); i++) {
+
+      mrs_msgs::ReferenceStamped pose;
+      pose.header               = prediction->header;
+      pose.reference.position.x = prediction->position[i].x;
+      pose.reference.position.y = prediction->position[i].y;
+      pose.reference.position.z = prediction->position[i].z;
+      pose.reference.heading    = prediction->heading[i];
+
+      auto transformed_pose = transformer_.transform(tf, pose);
+
+      if (!transformed_pose) {
+        ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not transform position cmd to the map frame! can not check for potential collisions!");
+        return;
+      }
+
+      trajectory.points.push_back(transformed_pose->reference);
+    }
+
+    // check if the trajectory is safe
+    for (int i = 0; i < trajectory.points.size() - 1; i++) {
+
+      octomap::point3d point1(trajectory.points[i].position.x, trajectory.points[i].position.y, trajectory.points[i].position.z);
+      octomap::point3d point2(trajectory.points[i + 1].position.x, trajectory.points[i + 1].position.y, trajectory.points[i + 1].position.z);
+
+      octomap::KeyRay key_ray;
+
+      if (octree->computeRayKeys(point1, point2, key_ray)) {
+
+        bool ray_is_cool = true;
+        for (octomap::KeyRay::iterator it1 = key_ray.begin(), end = key_ray.end(); it1 != end; ++it1) {
+          auto node = octree->search(*it1);
+          if (!node || octree->isNodeOccupied(node)) {
+            ray_is_cool = false;
+            break;
+          }
+        }
+
+        if (!ray_is_cool) {
+
+          ROS_ERROR_THROTTLE(0.1, "[Pathfinder]: future check found collision with prediction horizon between %d and %d, hovering!", i, i + 1);
+
+          // shorten the trajectory
+          for (int j = int(trajectory.points.size()) - 1; j >= floor(i / 2.0); j--) {
+            trajectory.points.pop_back();
+          }
+
+          mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
+          srv_trajectory_reference.request.trajectory = trajectory;
+
+          bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
+
+          if (!success) {
+            ROS_ERROR("[Pathfinder]: service call for trajectory reference failed");
+            break;
+          } else {
+            if (!srv_trajectory_reference.response.success) {
+              ROS_ERROR("[Pathfinder]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
+              break;
+            }
+          }
+
+          break;
+        }
+
+      } else {
+
+        ROS_ERROR_THROTTLE(0.1, "[Pathfinder]: future check failed, could not raytrace!");
         hover();
         break;
       }

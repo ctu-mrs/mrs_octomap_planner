@@ -38,6 +38,7 @@
       <!-- services in -->
 
       <remap from="~goto_in" to="~goto" />
+      <remap from="~reference_in" to="~reference" />
 
       <!-- services out -->
 
