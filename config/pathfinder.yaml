@@ -8,7 +8,7 @@ future_check_timer:
 planning_tree_resolution: 1.00 # [m] voxel edge size
 
 euclidean_distance_cutoff: 1.2 # [m]
-safe_obstacle_distance: 1.5 # [m]
+safe_obstacle_distance: 1.2 # [m]
 
 distance_penalty: 1.0
 greedy_penalty: 1.0
