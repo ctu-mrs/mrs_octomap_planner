@@ -26,6 +26,7 @@
 #include <mrs_lib/service_client_handler.h>
 #include <mrs_lib/transformer.h>
 #include <mrs_lib/geometry/misc.h>
+#include <mrs_lib/geometry/cyclic.h>
 
 #include <mrs_msgs/PositionCommand.h>
 #include <mrs_msgs/Vec4.h>
@@ -34,6 +35,7 @@
 #include <mrs_msgs/MpcPredictionFullState.h>
 #include <mrs_msgs/TrajectoryReferenceSrv.h>
 #include <mrs_msgs/ControlManagerDiagnostics.h>
+#include <mrs_msgs/DynamicsConstraints.h>
 
 #include <std_srvs/Trigger.h>
 
@@ -115,6 +117,7 @@ private:
   mrs_lib::SubscribeHandler<octomap_msgs::Octomap>               sh_octomap_;
   mrs_lib::SubscribeHandler<mrs_msgs::MpcPredictionFullState>    sh_mpc_prediction_;
   mrs_lib::SubscribeHandler<mrs_msgs::ControlManagerDiagnostics> sh_control_manager_diag_;
+  mrs_lib::SubscribeHandler<mrs_msgs::DynamicsConstraints>       sh_constraints_;
 
   // subscriber callbacks
   void callbackPositionCmd(mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>& wrp);
@@ -176,6 +179,8 @@ private:
 
   // routines
   void setReplanningPoint(const mrs_msgs::TrajectoryReference& traj);
+
+  std::vector<double> estimateSegmentTimes(const std::vector<Eigen::Vector4d>& vertices, const bool use_heading);
 
   /**
    * @brief returns planning initial condition for a given future time based on the MPC prediction horizon
@@ -257,6 +262,8 @@ void Pathfinder::onInit() {
 
   sh_control_manager_diag_ = mrs_lib::SubscribeHandler<mrs_msgs::ControlManagerDiagnostics>(shopts, "control_manager_diag_in", ros::Duration(3.0),
                                                                                             &Pathfinder::timeoutControlManagerDiag, this);
+
+  sh_constraints_ = mrs_lib::SubscribeHandler<mrs_msgs::DynamicsConstraints>(shopts, "constraints_in");
 
   // | --------------------- service clients -------------------- |
 
@@ -632,11 +639,12 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
   const bool got_position_cmd         = sh_position_cmd_.hasMsg() && (ros::Time::now() - sh_position_cmd_.lastMsgTime()).toSec() < 2.0;
   const bool got_mpc_prediction       = sh_mpc_prediction_.hasMsg() && (ros::Time::now() - sh_mpc_prediction_.lastMsgTime()).toSec() < 2.0;
   const bool got_control_manager_diag = sh_control_manager_diag_.hasMsg() && (ros::Time::now() - sh_control_manager_diag_.lastMsgTime()).toSec() < 2.0;
+  const bool got_constraints          = sh_constraints_.hasMsg() && (ros::Time::now() - sh_constraints_.lastMsgTime()).toSec() < 2.0;
 
-  if (!got_octomap || !got_position_cmd || !got_mpc_prediction || !got_control_manager_diag) {
-    ROS_INFO_THROTTLE(1.0, "[Pathfinder]: waiting for data: octomap = %s, position cmd = %s, MPC prediction = %s, ControlManager diag = %s",
+  if (!got_octomap || !got_position_cmd || !got_mpc_prediction || !got_control_manager_diag || !got_constraints) {
+    ROS_INFO_THROTTLE(1.0, "[Pathfinder]: waiting for data: octomap = %s, position cmd = %s, MPC prediction = %s, ControlManager diag = %s, constraints = %s",
                       got_octomap ? "TRUE" : "FALSE", got_position_cmd ? "TRUE" : "FALSE", got_mpc_prediction ? "TRUE" : "FALSE",
-                      got_control_manager_diag ? "TRUE" : "FALSE");
+                      got_control_manager_diag ? "TRUE" : "FALSE", got_constraints ? "TRUE" : "FALSE");
     return;
   } else {
     ready_to_plan_ = true;
@@ -779,15 +787,40 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       srv_get_path.request.path.relax_heading   = true;
       srv_get_path.request.path.use_heading     = true;
 
+      std::vector<Eigen::Vector4d> eig_waypoints;
+
+      // create an array of Eigen waypoints
       for (auto& w : waypoints.first) {
 
+        Eigen::Vector4d eig_waypoint;
+        eig_waypoint[0] = w.x();
+        eig_waypoint[1] = w.y();
+        eig_waypoint[2] = w.z();
+        eig_waypoint[4] = user_goal.heading;
+
+        eig_waypoints.push_back(eig_waypoint);
+      }
+
+      std::vector<double> segment_times = estimateSegmentTimes(eig_waypoints, false);
+
+      double cum_time = 0;
+
+      for (int i = 0; i < waypoints.first.size(); i++) {
+
         mrs_msgs::Reference ref;
-        ref.position.x = w.x();
-        ref.position.y = w.y();
-        ref.position.z = w.z();
+        ref.position.x = waypoints.first[i].x();
+        ref.position.y = waypoints.first[i].y();
+        ref.position.z = waypoints.first[i].z();
         ref.heading    = user_goal.heading;
 
         srv_get_path.request.path.points.push_back(ref);
+
+        cum_time += segment_times[i];
+
+        if (cum_time > 15.0) {
+          ROS_INFO("[Pathfinder]: cutting path in waypoint %d out of %d", i, int(waypoints.first.size()));
+          break;
+        }
       }
 
       ROS_INFO("[Pathfinder]: calling trajectory generation");
@@ -1134,6 +1167,194 @@ void Pathfinder::hover(void) {
   std_srvs::Trigger srv_out;
 
   sc_hover_.call(srv_out);
+}
+
+//}
+
+/* estimateSegmentTimes() //{ */
+
+std::vector<double> Pathfinder::estimateSegmentTimes(const std::vector<Eigen::Vector4d>& vertices, const bool use_heading) {
+
+  if (vertices.size() <= 1) {
+    return std::vector<double>(0);
+  }
+
+  const mrs_msgs::DynamicsConstraintsConstPtr constraints = sh_constraints_.getMsg();
+
+  const double v_max_vertical    = std::min(constraints->vertical_ascending_speed, constraints->vertical_descending_speed);
+  const double a_max_vertical    = std::min(constraints->vertical_ascending_acceleration, constraints->vertical_descending_acceleration);
+  const double j_max_vertical    = std::min(constraints->vertical_ascending_jerk, constraints->vertical_descending_jerk);
+  const double v_max_horizontal  = constraints->horizontal_speed;
+  const double a_max_horizontal  = constraints->horizontal_acceleration;
+  const double j_max_horizontal  = constraints->horizontal_jerk;
+  const double heading_acc_max   = constraints->heading_acceleration;
+  const double heading_speed_max = constraints->heading_speed;
+
+  std::vector<double> segment_times;
+  segment_times.reserve(vertices.size() - 1);
+
+  // for each vertex in the path
+  for (size_t i = 0; i < vertices.size() - 1; i++) {
+
+    Eigen::Vector3d start     = vertices[i].head(3);
+    Eigen::Vector3d end       = vertices[i + 1].head(3);
+    double          start_hdg = vertices[i](3);
+    double          end_hdg   = vertices[i + 1](3);
+
+    double acceleration_time_1 = 0;
+    double acceleration_time_2 = 0;
+
+    double jerk_time_1 = 0;
+    double jerk_time_2 = 0;
+
+    double acc_1_coeff = 0;
+    double acc_2_coeff = 0;
+
+    double distance = (end - start).norm();
+
+    double inclinator = atan2(end(2) - start(2), sqrt(pow(end(0) - start(0), 2) + pow(end(1) - start(1), 2)));
+
+    double v_max, a_max, j_max;
+
+    if (inclinator > atan2(v_max_vertical, v_max_horizontal) || inclinator < -atan2(v_max_vertical, v_max_horizontal)) {
+      v_max = fabs(v_max_vertical / sin(inclinator));
+    } else {
+      v_max = fabs(v_max_horizontal / cos(inclinator));
+    }
+
+    if (inclinator > atan2(a_max_vertical, a_max_horizontal) || inclinator < -atan2(a_max_vertical, a_max_horizontal)) {
+      a_max = fabs(a_max_vertical / sin(inclinator));
+    } else {
+      a_max = fabs(a_max_horizontal / cos(inclinator));
+    }
+
+    if (inclinator > atan2(j_max_vertical, j_max_horizontal) || inclinator < -atan2(j_max_vertical, j_max_horizontal)) {
+      j_max = fabs(j_max_vertical / sin(inclinator));
+    } else {
+      j_max = fabs(j_max_horizontal / cos(inclinator));
+    }
+
+    if (i >= 1) {
+
+      Eigen::Vector3d pre = vertices[i - 1].head(3);
+
+      Eigen::Vector3d vec1 = start - pre;
+      Eigen::Vector3d vec2 = end - start;
+
+      vec1.normalize();
+      vec2.normalize();
+
+      double scalar = vec1.dot(vec2) < 0 ? 0.0 : vec1.dot(vec2);
+
+      acc_1_coeff = (1 - scalar);
+
+      acceleration_time_1 = acc_1_coeff * ((v_max / a_max) + (a_max / j_max));
+
+      jerk_time_1 = acc_1_coeff * (2 * (a_max / j_max));
+    }
+
+    // the first vertex
+    if (i == 0) {
+      acc_1_coeff         = 1.0;
+      acceleration_time_1 = (v_max / a_max) + (a_max / j_max);
+      jerk_time_1         = (2 * (a_max / j_max));
+    }
+
+    // last vertex
+    if (i == vertices.size() - 2) {
+      acc_2_coeff         = 1.0;
+      acceleration_time_2 = (v_max / a_max) + (a_max / j_max);
+      jerk_time_2         = (2 * (a_max / j_max));
+    }
+
+    // a vertex
+    if (i < vertices.size() - 2) {
+
+      Eigen::Vector3d post = vertices[i + 2].head(3);
+
+      Eigen::Vector3d vec1 = end - start;
+      Eigen::Vector3d vec2 = post - end;
+
+      vec1.normalize();
+      vec2.normalize();
+
+      double scalar = vec1.dot(vec2) < 0 ? 0.0 : vec1.dot(vec2);
+
+      acc_2_coeff = (1 - scalar);
+
+      acceleration_time_2 = acc_2_coeff * ((v_max / a_max) + (a_max / j_max));
+
+      jerk_time_2 = acc_2_coeff * (2 * (a_max / j_max));
+    }
+
+    if (acceleration_time_1 > sqrt(2 * distance / a_max)) {
+      acceleration_time_1 = sqrt(2 * distance / a_max);
+    }
+
+    if (jerk_time_1 > sqrt(2 * v_max / j_max)) {
+      jerk_time_1 = sqrt(2 * v_max / j_max);
+    }
+
+    if (acceleration_time_2 > sqrt(2 * distance / a_max)) {
+      acceleration_time_2 = sqrt(2 * distance / a_max);
+    }
+
+    if (jerk_time_2 > sqrt(2 * v_max / j_max)) {
+      jerk_time_2 = sqrt(2 * v_max / j_max);
+    }
+
+    double max_velocity_time;
+
+    if (((distance - (2 * (v_max * v_max) / a_max)) / v_max) < 0) {
+      max_velocity_time = ((distance) / v_max);
+    } else {
+      max_velocity_time = ((distance - (2 * (v_max * v_max) / a_max)) / v_max);
+    }
+
+    /* double t = max_velocity_time + acceleration_time_1 + acceleration_time_2 + jerk_time_1 + jerk_time_2; */
+    double t = max_velocity_time + acceleration_time_1 + acceleration_time_2;
+
+    /* printf("segment %d, [%.2f %.2f %.2f] - > [%.2f %.2f %.2f] = %.2f\n", i, start(0), start(1), start(2), end(0), end(1), end(2), distance); */
+    /* printf("segment %d time %.2f, distance %.2f, %.2f, %.2f, %.2f, vmax: %.2f, amax: %.2f, jmax: %.2f\n", i, t, distance, max_velocity_time, */
+    /*        acceleration_time_1, acceleration_time_2, v_max, a_max, j_max); */
+
+    if (t < 0.01) {
+      t = 0.01;
+    }
+
+    // | ------------- check the heading rotation time ------------ |
+
+    double angular_distance = fabs(mrs_lib::geometry::radians::dist(start_hdg, end_hdg));
+
+    double hdg_velocity_time     = 0;
+    double hdg_acceleration_time = 0;
+
+    if (use_heading) {
+
+      if (heading_speed_max < std::numeric_limits<float>::max() && heading_acc_max < std::numeric_limits<float>::max()) {
+
+        if (((angular_distance - (2 * (heading_speed_max * heading_speed_max) / heading_acc_max)) / heading_speed_max) < 0) {
+          hdg_velocity_time = ((angular_distance) / heading_speed_max);
+        } else {
+          hdg_velocity_time = ((angular_distance - (2 * (heading_speed_max * heading_speed_max) / heading_acc_max)) / heading_speed_max);
+        }
+
+        if (angular_distance > M_PI / 4) {
+          hdg_acceleration_time = 2 * (heading_speed_max / heading_acc_max);
+        }
+      }
+    }
+
+    // what will take longer? to fix the lateral or the heading
+    double heading_fix_time = 1.5 * (hdg_velocity_time + hdg_acceleration_time);
+
+    if (heading_fix_time > t) {
+      t = heading_fix_time;
+    }
+
+    segment_times.push_back(t);
+  }
+  return segment_times;
 }
 
 //}

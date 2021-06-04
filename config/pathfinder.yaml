@@ -8,10 +8,10 @@ future_check_timer:
 planning_tree_resolution: 1.00 # [m] voxel edge size
 
 euclidean_distance_cutoff: 1.2 # [m]
-safe_obstacle_distance: 1.2 # [m]
+safe_obstacle_distance: 1.5 # [m]
 
 distance_penalty: 1.0
-greedy_penalty: 5.0
+greedy_penalty: 1.0
 
 endpoint_tolerance: 2.0 # [m]
 max_waypoint_distance: 3.0 # [m] // or set negative for no padding
