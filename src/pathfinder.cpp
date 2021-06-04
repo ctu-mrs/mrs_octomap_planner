@@ -82,7 +82,7 @@ private:
   double _rate_main_timer_;
   double _rate_future_check_timer_;
   double _replan_after_;
-  bool   _unknown_is_occupied_ = false;
+  bool   _unknown_is_occupied_;
 
   std::shared_ptr<octomap::OcTree> octree_;
   std::string                      octree_frame_;

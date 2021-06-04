@@ -16,7 +16,7 @@ greedy_penalty: 1.0
 endpoint_tolerance: 2.0 # [m]
 max_waypoint_distance: 3.0 # [m] // or set negative for no padding
 min_altitude: 0.9 # [m]
-unknown_is_occupied: false
+unknown_is_occupied: true
 replan_after: 1.0 # [s]
 
 timeout_threshold: 2.0 # [s]
