@@ -683,9 +683,12 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       if (replanning_counter_ >= 3) {
 
-        ROS_ERROR("[Pathfinder]: planning failed, uav is stuck!");
+        ROS_ERROR("[Pathfinder]: planning failed, the uav is stuck, hovering!");
 
-        changeState(STATE_IDLE);
+        hover();
+
+        replanning_counter_ = 0;
+
         break;
       }
 
@@ -698,6 +701,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       } else {
         time_for_planning = _timeout_threshold_ + pow(1.5, float(replanning_counter_));
       }
+
+      ROS_INFO("[Pathfinder]: planning timeout %.2f s", time_for_planning);
 
       auto initial_condition = getInitialCondition(ros::Time::now() + ros::Duration(time_for_planning + _time_for_trajectory_generator_));
 
@@ -726,11 +731,9 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         if (waypoints.first.size() < 2) {
 
-          ROS_ERROR("[Pathfinder]: path not found");
+          ROS_WARN("[Pathfinder]: path not found");
 
           replanning_counter_++;
-
-          changeState(STATE_PLANNING);
 
           break;
         }
@@ -747,7 +750,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         if (path_start_end_dist < 0.1) {
 
-          ROS_ERROR("[Pathfinder]: path too short");
+          ROS_WARN("[Pathfinder]: path too short");
 
           replanning_counter_++;
 
@@ -774,9 +777,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       ros::Time path_stamp = initial_condition->header.stamp;
 
-      bool moving = fabs(position_cmd->velocity.x) > 0.5 || fabs(position_cmd->velocity.y) > 0.5 || fabs(position_cmd->velocity.z) > 0.5;
-
-      if (ros::Time::now() > path_stamp || !control_manager_diag->tracker_status.have_goal || !moving) {
+      if (ros::Time::now() > path_stamp || !control_manager_diag->tracker_status.have_goal) {
         path_stamp = ros::Time(0);
       }
 

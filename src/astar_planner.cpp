@@ -117,7 +117,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   open_heap.push(first);
   open.insert(first);
 
-  Node best_node = first;
+  Node best_node        = first;
+  Node best_node_greedy = first;
 
   int iter = 0;
 
@@ -152,7 +153,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     auto current_coord = tree.keyToCoord(current.key);
     /* std::cout << "Current coord: " << current_coord.x() << ", " << current_coord.y() << ", " << current_coord.z() << std::endl; */
 
-    if (distEuclidean(current_coord, map_goal) < 2.0 * planning_tree_resolution) {
+    if (distEuclidean(current_coord, map_goal) <= planning_tree_resolution) {
 
       auto path_keys = backtrackPathKeys(current, first, parent_map);
       path_keys.push_back(tree.coordToKey(map_goal));
@@ -195,6 +196,10 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
           best_node = n;
         }
 
+        if (n.goal_dist <= best_node_greedy.goal_dist) {
+          best_node_greedy = n;
+        }
+
         open_heap.push(n);
         open.insert(n);
         parent_map[n] = current;
@@ -208,14 +213,23 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   visualizeExpansions(open, closed, tree);
   bv->publish();
 
-  /* if (last_closed != first) { */
+  if (best_node != first) {
 
-  /*   auto path_keys = backtrackPathKeys(last_closed, first, parent_map); */
+    auto path_keys = backtrackPathKeys(best_node, first, parent_map);
 
-  /*   std::cout << "direct path does not exist, goint somewhere" << std::endl; */
+    std::cout << "direct path does not exist, goint to the 'best_node'" << std::endl;
 
-  /*   return std::make_pair(prepareOutputPath(path_keys, tree), false); */
-  /* } */
+    return std::make_pair(prepareOutputPath(path_keys, tree), false);
+  }
+
+  if (best_node_greedy != first) {
+
+    auto path_keys = backtrackPathKeys(best_node_greedy, first, parent_map);
+
+    std::cout << "direct path does not exist, goint to the best_node_greedy'" << std::endl;
+
+    return std::make_pair(prepareOutputPath(path_keys, tree), false);
+  }
 
   std::cout << "PATH DOES NOT EXIST!" << std::endl;
 
