@@ -31,6 +31,7 @@ struct Node
   bool operator==(const Node &other) const;
   bool operator!=(const Node &other) const;
   bool operator<(const Node &other) const;
+  bool operator<=(const Node &other) const;
 };
 
 struct CostComparator

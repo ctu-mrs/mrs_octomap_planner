@@ -20,6 +20,15 @@ bool Node::operator<(const Node &other) const {
   return total_cost < other.total_cost;
 }
 
+bool Node::operator<=(const Node &other) const {
+
+  if (total_cost == other.total_cost) {
+    return goal_dist <= other.goal_dist;
+  }
+
+  return total_cost <= other.total_cost;
+}
+
 bool CostComparator::operator()(const Node &n1, const Node &n2) const {
 
   if (n1.total_cost == n2.total_cost) {
@@ -138,7 +147,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     if (time_now.toSec() - time_start.toSec() > timeout_threshold) {
 
       ROS_WARN("[%s]: Planning timeout! Using current best node as goal.", ros::this_node::getName().c_str());
-      auto path_keys = backtrackPathKeys(best_node == first ? current : best_node, first, parent_map);
+      auto path_keys = backtrackPathKeys(best_node == first ? best_node_greedy : best_node, first, parent_map);
       ROS_INFO("[%s]: Path found. Length: %ld", ros::this_node::getName().c_str(), path_keys.size());
 
       bv->clearVisuals();
@@ -192,7 +201,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       if (closed_query == closed.end() && open_query == open.end()) {
 
-        if (n < best_node) {
+        if (n <= best_node) {
           best_node = n;
         }
 

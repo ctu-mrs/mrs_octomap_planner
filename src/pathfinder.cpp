@@ -704,12 +704,18 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       ROS_INFO("[Pathfinder]: planning timeout %.2f s", time_for_planning);
 
-      auto initial_condition = getInitialCondition(ros::Time::now() + ros::Duration(time_for_planning + _time_for_trajectory_generator_));
+      ros::Time init_cond_time = ros::Time::now() + ros::Duration(time_for_planning + _time_for_trajectory_generator_);
+
+      ROS_INFO("[Pathfinder]: init cond time %.2f s", init_cond_time.toSec());
+
+      auto initial_condition = getInitialCondition(init_cond_time);
 
       if (!initial_condition) {
         ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition for planning");
         break;
       }
+
+      ROS_INFO("[Pathfinder]: init cond time stamp %.2f", initial_condition.value().header.stamp.toSec());
 
       octomap::point3d plan_from;
       plan_from.x() = initial_condition.value().reference.position.x;
@@ -726,6 +732,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       if (waypoints.second) {
 
         replanning_counter_ = 0;
+
+        /* waypoints.first.push_back(user_goal_octpoint); */
 
       } else {
 
@@ -775,7 +783,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         initial_heading_ = position_cmd->heading;
       }
 
-      ros::Time path_stamp = initial_condition->header.stamp;
+      ros::Time path_stamp = initial_condition.value().header.stamp;
 
       if (ros::Time::now() > path_stamp || !control_manager_diag->tracker_status.have_goal) {
         path_stamp = ros::Time(0);
@@ -1115,26 +1123,28 @@ void Pathfinder::changeState(const State_t new_state) {
 
 /* getInitialCondition() //{ */
 
-std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const ros::Time time) {
+std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const ros::Time des_time) {
 
   const mrs_msgs::MpcPredictionFullStateConstPtr prediction_full_state = sh_mpc_prediction_.getMsg();
 
-  if (time > prediction_full_state->stamps.back()) {
+  if (des_time > prediction_full_state->stamps.back()) {
     ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition, the desired time is too far in the future");
     return {};
   }
 
   mrs_msgs::ReferenceStamped orig_reference;
-  orig_reference.header.frame_id = prediction_full_state->header.frame_id;
+  orig_reference.header = prediction_full_state->header;
+
+  ros::Time future_time_stamp;
 
   for (int i = 0; i < prediction_full_state->stamps.size(); i++) {
 
-    if ((prediction_full_state->stamps[i] - time).toSec() > 0) {
+    if ((prediction_full_state->stamps[i] - des_time).toSec() > 0) {
       orig_reference.reference.position.x = prediction_full_state->position[i].x;
       orig_reference.reference.position.y = prediction_full_state->position[i].y;
       orig_reference.reference.position.z = prediction_full_state->position[i].z;
       orig_reference.reference.heading    = prediction_full_state->heading[i];
-      orig_reference.header.stamp         = prediction_full_state->stamps[i];
+      future_time_stamp                   = prediction_full_state->stamps[i];
       break;
     }
   }
@@ -1145,7 +1155,10 @@ std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const 
 
   if (result) {
 
-    return result.value();
+    mrs_msgs::ReferenceStamped transfomed_reference = result.value();
+    transfomed_reference.header.stamp               = future_time_stamp;
+
+    return transfomed_reference;
 
   } else {
 
