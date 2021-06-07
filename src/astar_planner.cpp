@@ -49,8 +49,8 @@ bool LeafComparator::operator()(const std::pair<octomap::OcTree::iterator, doubl
 
 /* AstarPlanner constructor //{ */
 AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty,
-                           double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, bool unknown_is_occupied,
-                           std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
+                           double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude,
+                           bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
 
   this->safe_obstacle_distance    = safe_obstacle_distance;
   this->euclidean_distance_cutoff = euclidean_distance_cutoff;
@@ -60,6 +60,7 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
   this->timeout_threshold         = timeout_threshold;
   this->max_waypoint_distance     = max_waypoint_distance;
   this->min_altitude              = min_altitude;
+  this->max_altitude              = max_altitude;
   this->unknown_is_occupied       = unknown_is_occupied;
   this->bv                        = bv;
 }
@@ -274,7 +275,7 @@ std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcT
 
     if (tree_node != NULL) {
       // free cell?
-      if (tree_node->getValue() == TreeValue::FREE && tree.keyToCoord(newkey).z() >= min_altitude) {
+      if (tree_node->getValue() == TreeValue::FREE && tree.keyToCoord(newkey).z() >= min_altitude && tree.keyToCoord(newkey).z() <= max_altitude) {
         neighbors.push_back(newkey);
       }
     }

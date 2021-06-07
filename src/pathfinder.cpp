@@ -84,6 +84,7 @@ private:
   double _max_waypoint_distance_;
   double _endpoint_tolerance_;
   double _min_altitude_;
+  double _max_altitude_;
   double _rate_main_timer_;
   double _rate_future_check_timer_;
   double _replan_after_;
@@ -223,6 +224,7 @@ void Pathfinder::onInit() {
   param_loader.loadParam("lines_scale", _lines_scale_);
   param_loader.loadParam("max_waypoint_distance", _max_waypoint_distance_);
   param_loader.loadParam("min_altitude", _min_altitude_);
+  param_loader.loadParam("max_altitude", _max_altitude_);
   param_loader.loadParam("timeout_threshold", _timeout_threshold_);
   param_loader.loadParam("replan_after", _replan_after_);
   param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
@@ -724,7 +726,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       pathfinder::AstarPlanner planner =
           pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
-                                   _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _unknown_is_occupied_, bv_planner_);
+                                   _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
       std::pair<std::vector<octomap::point3d>, bool> waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
 
