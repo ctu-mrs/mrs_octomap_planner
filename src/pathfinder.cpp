@@ -87,6 +87,7 @@ private:
   double _min_altitude_;
   double _max_altitude_;
   double _rate_main_timer_;
+  double _rate_diagnostics_timer_;
   double _rate_future_check_timer_;
   double _replan_after_;
   bool   _unknown_is_occupied_;
@@ -146,8 +147,15 @@ private:
   ros::Timer timer_main_;
   void       timerMain([[maybe_unused]] const ros::TimerEvent& evt);
 
+  ros::Timer timer_diagnostics_;
+  void       timerDiagnostics([[maybe_unused]] const ros::TimerEvent& evt);
+
   ros::Timer timer_future_check_;
   void       timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt);
+
+  // diagnostics
+  mrs_msgs::PathfinderDiagnostics diagnostics_;
+  std::mutex                      mutex_diagnostics_;
 
   // timeouts
   void timeoutOctomap(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
@@ -215,6 +223,7 @@ void Pathfinder::onInit() {
 
   param_loader.loadParam("uav_name", _uav_name_);
   param_loader.loadParam("main_timer/rate", _rate_main_timer_);
+  param_loader.loadParam("diagnostics_timer/rate", _rate_diagnostics_timer_);
   param_loader.loadParam("future_check_timer/rate", _rate_future_check_timer_);
 
   param_loader.loadParam("euclidean_distance_cutoff", _euclidean_distance_cutoff_);
@@ -250,6 +259,7 @@ void Pathfinder::onInit() {
 
   timer_main_         = nh_.createTimer(ros::Rate(_rate_main_timer_), &Pathfinder::timerMain, this);
   timer_future_check_ = nh_.createTimer(ros::Rate(_rate_future_check_timer_), &Pathfinder::timerFutureCheck, this);
+  timer_diagnostics_  = nh_.createTimer(ros::Rate(_rate_diagnostics_timer_), &Pathfinder::timerDiagnostics, this);
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -681,12 +691,17 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
   user_goal_octpoint.y() = user_goal.position.y;
   user_goal_octpoint.z() = user_goal.position.z;
 
-  // | ------------------- publish diagnostics ------------------ |
-  mrs_msgs::PathfinderDiagnostics diagnostics;
+  {
+    std::scoped_lock lock(mutex_diagnostics_);
 
-  diagnostics.header.stamp    = ros::Time::now();
-  diagnostics.header.frame_id = octree_frame_;
-  diagnostics.idle            = false;
+    diagnostics_.header.stamp    = ros::Time::now();
+    diagnostics_.header.frame_id = octree_frame_;
+    diagnostics_.idle            = false;
+
+    diagnostics_.desired_reference.x = user_goal.position.x;
+    diagnostics_.desired_reference.y = user_goal.position.y;
+    diagnostics_.desired_reference.z = user_goal.position.z;
+  }
 
   switch (state_) {
 
@@ -694,7 +709,11 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
     case STATE_IDLE: {
 
-      diagnostics.idle = true;
+      {
+        std::scoped_lock lock(mutex_diagnostics_);
+
+        diagnostics_.idle = true;
+      }
 
       break;
     }
@@ -704,6 +723,12 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       /* STATE_PLANNING //{ */
 
     case STATE_PLANNING: {
+
+      {
+        std::scoped_lock lock(mutex_diagnostics_);
+
+        diagnostics_.idle = false;
+      }
 
       if (replanning_counter_ >= 3) {
 
@@ -794,13 +819,9 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       time_last_plan_ = ros::Time::now();
 
-      diagnostics.desired_reference.x = user_goal.position.x;
-      diagnostics.desired_reference.y = user_goal.position.y;
-      diagnostics.desired_reference.z = user_goal.position.z;
-
-      diagnostics.best_goal.x = waypoints.first.back().x();
-      diagnostics.best_goal.y = waypoints.first.back().y();
-      diagnostics.best_goal.z = waypoints.first.back().x();
+      diagnostics_.best_goal.x = waypoints.first.back().x();
+      diagnostics_.best_goal.y = waypoints.first.back().y();
+      diagnostics_.best_goal.z = waypoints.first.back().x();
 
       {
         std::scoped_lock lock(mutex_initial_condition_);
@@ -927,6 +948,12 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
     case STATE_MOVING: {
 
+      {
+        std::scoped_lock lock(mutex_diagnostics_);
+
+        diagnostics_.idle = false;
+      }
+
       auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_);
 
       double dist_to_goal = (initial_pos - user_goal_octpoint).norm();
@@ -950,13 +977,6 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
     }
 
       //}
-  }
-
-  try {
-    pub_diagnostics_.publish(diagnostics);
-  }
-  catch (...) {
-    ROS_ERROR("exception caught during publishing topic '%s'", pub_diagnostics_.getTopic().c_str());
   }
 }
 
@@ -1094,6 +1114,26 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
         break;
       }
     }
+  }
+}
+
+//}
+
+/* timerDiagnostics() //{ */
+
+void Pathfinder::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& evt) {
+
+  if (!is_initialized_) {
+    return;
+  }
+
+  auto diagnostics = mrs_lib::get_mutexed(mutex_diagnostics_, diagnostics_);
+
+  try {
+    pub_diagnostics_.publish(diagnostics);
+  }
+  catch (...) {
+    ROS_ERROR("exception caught during publishing topic '%s'", pub_diagnostics_.getTopic().c_str());
   }
 }
 

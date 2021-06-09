@@ -1,6 +1,9 @@
 main_timer:
   rate: 20.0 # [Hz]
 
+diagnostics_timer:
+  rate: 10.0 # [Hz]
+
 future_check_timer:
   rate: 10.0 # [Hz]
 
