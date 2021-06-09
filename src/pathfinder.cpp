@@ -826,14 +826,28 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       {
         std::scoped_lock lock(mutex_initial_condition_);
 
-        // TODO should be transformed into the map frame
-
         mrs_msgs::PositionCommandConstPtr position_cmd = sh_position_cmd_.getMsg();
+        auto                              octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
 
-        initial_pos_.x() = position_cmd->position.x;
-        initial_pos_.y() = position_cmd->position.y;
-        initial_pos_.z() = position_cmd->position.z;
-        initial_heading_ = position_cmd->heading;
+        // transform the position cmd to the map frame
+        mrs_msgs::ReferenceStamped position_cmd_ref;
+        position_cmd_ref.header               = position_cmd->header;
+        position_cmd_ref.reference.position.x = position_cmd->position.x;
+        position_cmd_ref.reference.position.y = position_cmd->position.y;
+        position_cmd_ref.reference.position.z = position_cmd->position.z;
+        position_cmd_ref.reference.heading    = position_cmd->heading;
+
+        auto res = transformer_.transformSingle(octree_frame, position_cmd_ref);
+
+        if (!res) {
+          ROS_ERROR("[Pathfinder]: could not transform position cmd to the map frame");
+          return;
+        }
+
+        initial_pos_.x() = res.value().reference.position.x;
+        initial_pos_.y() = res.value().reference.position.y;
+        initial_pos_.z() = res.value().reference.position.z;
+        initial_heading_ = res.value().reference.heading;
       }
 
       ros::Time path_stamp = initial_condition.value().header.stamp;
