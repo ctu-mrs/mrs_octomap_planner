@@ -1,6 +1,5 @@
 /* includes //{ */
 
-#include "mrs_msgs/TrajectoryReference.h"
 #include <memory>
 #include <ros/init.h>
 #include <ros/ros.h>
@@ -36,6 +35,8 @@
 #include <mrs_msgs/TrajectoryReferenceSrv.h>
 #include <mrs_msgs/ControlManagerDiagnostics.h>
 #include <mrs_msgs/DynamicsConstraints.h>
+#include <mrs_msgs/TrajectoryReference.h>
+#include <mrs_msgs/PathfinderDiagnostics.h>
 
 #include <std_srvs/Trigger.h>
 
@@ -119,6 +120,9 @@ private:
   mrs_lib::SubscribeHandler<mrs_msgs::MpcPredictionFullState>    sh_mpc_prediction_;
   mrs_lib::SubscribeHandler<mrs_msgs::ControlManagerDiagnostics> sh_control_manager_diag_;
   mrs_lib::SubscribeHandler<mrs_msgs::DynamicsConstraints>       sh_constraints_;
+
+  // publishers
+  ros::Publisher pub_diagnostics_;
 
   // subscriber callbacks
   void callbackPositionCmd(mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>& wrp);
@@ -237,6 +241,10 @@ void Pathfinder::onInit() {
   // | ---------------------- state machine --------------------- |
 
   state_ = STATE_IDLE;
+
+  // | ----------------------- publishers ----------------------- |
+
+  pub_diagnostics_ = nh_.advertise<mrs_msgs::PathfinderDiagnostics>("diagnostics_out", 1);
 
   // | ------------------------- timers ------------------------- |
 
@@ -673,11 +681,25 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
   user_goal_octpoint.y() = user_goal.position.y;
   user_goal_octpoint.z() = user_goal.position.z;
 
+  // | ------------------- publish diagnostics ------------------ |
+  mrs_msgs::PathfinderDiagnostics diagnostics;
+
+  diagnostics.header.stamp    = ros::Time::now();
+  diagnostics.header.frame_id = octree_frame_;
+  diagnostics.flying = false;
+
   switch (state_) {
 
+      /* STATE_IDLE //{ */
+
     case STATE_IDLE: {
+
+      diagnostics.flying = false;
+
       break;
     }
+
+      //}
 
       /* STATE_PLANNING //{ */
 
@@ -771,6 +793,14 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       }
 
       time_last_plan_ = ros::Time::now();
+
+      diagnostics.desired_reference.x = user_goal.position.x;
+      diagnostics.desired_reference.y = user_goal.position.y;
+      diagnostics.desired_reference.z = user_goal.position.z;
+
+      diagnostics.best_goal.x = waypoints.first.back().x();
+      diagnostics.best_goal.y = waypoints.first.back().y();
+      diagnostics.best_goal.z = waypoints.first.back().x();
 
       {
         std::scoped_lock lock(mutex_initial_condition_);
@@ -882,6 +912,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           if (!srv_trajectory_reference.response.success) {
             ROS_ERROR("[Pathfinder]: service call for trajectory reference failed: '%s'", srv_get_path.response.message.c_str());
             break;
+          } else {
           }
         }
       }
@@ -895,6 +926,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       /* STATE_MOVING //{ */
 
     case STATE_MOVING: {
+
+      diagnostics.flying = true;
 
       auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_);
 
@@ -919,6 +952,13 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
     }
 
       //}
+  }
+
+  try {
+    pub_diagnostics_.publish(diagnostics);
+  }
+  catch (...) {
+    ROS_ERROR("exception caught during publishing topic '%s'", pub_diagnostics_.getTopic().c_str());
   }
 }
 
