@@ -686,7 +686,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
   diagnostics.header.stamp    = ros::Time::now();
   diagnostics.header.frame_id = octree_frame_;
-  diagnostics.flying = false;
+  diagnostics.idle            = false;
 
   switch (state_) {
 
@@ -694,7 +694,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
     case STATE_IDLE: {
 
-      diagnostics.flying = false;
+      diagnostics.idle = true;
 
       break;
     }
@@ -926,8 +926,6 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       /* STATE_MOVING //{ */
 
     case STATE_MOVING: {
-
-      diagnostics.flying = true;
 
       auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_);
 
