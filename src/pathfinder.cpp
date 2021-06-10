@@ -760,7 +760,11 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       auto initial_condition = getInitialCondition(init_cond_time);
 
       if (!initial_condition) {
+
         ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition for planning");
+        hover();
+        changeState(STATE_IDLE);
+
         break;
       }
 
@@ -1221,7 +1225,7 @@ std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const 
 
   const mrs_msgs::MpcPredictionFullStateConstPtr prediction_full_state = sh_mpc_prediction_.getMsg();
 
-  if (des_time > prediction_full_state->stamps.back()) {
+  if ((des_time - prediction_full_state->stamps.back()).toSec() > 0) {
     ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition, the desired time is too far in the future");
     return {};
   }
