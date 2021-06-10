@@ -97,8 +97,8 @@ private:
 
   DynamicEDTOctomap euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree);
 
-  std::pair<octomap::OcTree, std::vector<octomap::point3d>> createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start,
-                                                                               double resolution);
+  std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> createPlanningTree(std::shared_ptr<octomap::OcTree> tree,
+                                                                                              const octomap::point3d &start, double resolution);
 
   octomap::point3d nearestFreeCoord(const octomap::point3d &p, const octomap::point3d &uav_pos, octomap::OcTree &tree);
 

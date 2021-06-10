@@ -736,7 +736,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         hover();
 
-        replanning_counter_ = 0;
+        changeState(STATE_IDLE);
 
         break;
       }

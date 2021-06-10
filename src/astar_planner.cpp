@@ -77,10 +77,15 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   this->timeout_threshold = timeout;
 
-  std::pair<octomap::OcTree, std::vector<octomap::point3d>> tree_with_tunnel = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution);
+  auto tree_with_tunnel = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution);
 
-  auto tree   = tree_with_tunnel.first;
-  auto tunnel = tree_with_tunnel.second;
+  if (!tree_with_tunnel) {
+    ROS_WARN_THROTTLE(1.0, "[%s]: could not create a plannig tree", ros::this_node::getName().c_str());
+    return {std::vector<octomap::point3d>(), false};
+  }
+
+  auto tree   = tree_with_tunnel.value().first;
+  auto tunnel = tree_with_tunnel.value().second;
 
   auto map_goal  = goal_coord;
   auto map_query = mapping_tree->search(goal_coord);
@@ -422,8 +427,8 @@ DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octom
 
 /* createPlanningTree() //{ */
 
-std::pair<octomap::OcTree, std::vector<octomap::point3d>> AstarPlanner::createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start,
-                                                                                           double resolution) {
+std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPlanner::createPlanningTree(std::shared_ptr<octomap::OcTree> tree,
+                                                                                                          const octomap::point3d &start, double resolution) {
 
   auto            edf         = euclideanDistanceTransform(tree);
   octomap::OcTree binary_tree = octomap::OcTree(resolution);
@@ -446,9 +451,16 @@ std::pair<octomap::OcTree, std::vector<octomap::point3d>> AstarPlanner::createPl
   if (binary_tree_query != NULL && binary_tree_query->getValue() != TreeValue::FREE) {
 
     std::cout << "Start is inside an inflated obstacle. Tunneling out..." << std::endl;
+
     // tunnel out of expanded walls
 
-    while (ros::ok() && binary_tree_query != NULL) {
+    int iter1 = 0;
+
+    while (ros::ok() && binary_tree_query != NULL && iter1++ <= 100) {
+
+      if (iter1++ > 100) {
+        return {};
+      }
 
       tunnel.push_back(current_coords);
       binary_tree.setNodeValue(current_coords, TreeValue::FREE);
@@ -467,15 +479,26 @@ std::pair<octomap::OcTree, std::vector<octomap::point3d>> AstarPlanner::createPl
 
       current_coords += dir_away_from_obstacle.normalized() * binary_tree.getResolution();
 
+      int iter2 = 0;
+
       while (binary_tree.search(current_coords) == binary_tree_query) {
+
+        if (iter2++ > 100) {
+          return {};
+        }
+
         current_coords += dir_away_from_obstacle.normalized() * binary_tree.getResolution();
       }
 
       binary_tree_query = binary_tree.search(current_coords);
     }
   }
-  return {binary_tree, tunnel};
+
+  std::pair<octomap::OcTree, std::vector<octomap::point3d>> result = {binary_tree, tunnel};
+
+  return result;
 }
+
 //}
 
 /* nearestFreeCoord() //{ */
