@@ -255,12 +255,6 @@ void Pathfinder::onInit() {
 
   pub_diagnostics_ = nh_.advertise<mrs_msgs::PathfinderDiagnostics>("diagnostics_out", 1);
 
-  // | ------------------------- timers ------------------------- |
-
-  timer_main_         = nh_.createTimer(ros::Rate(_rate_main_timer_), &Pathfinder::timerMain, this);
-  timer_future_check_ = nh_.createTimer(ros::Rate(_rate_future_check_timer_), &Pathfinder::timerFutureCheck, this);
-  timer_diagnostics_  = nh_.createTimer(ros::Rate(_rate_diagnostics_timer_), &Pathfinder::timerDiagnostics, this);
-
   // | ----------------------- subscribers ---------------------- |
 
   mrs_lib::SubscribeHandlerOptions shopts;
@@ -313,6 +307,12 @@ void Pathfinder::onInit() {
   bv_processed_ = mrs_lib::BatchVisualizer(nh_, "visualize_processed", "");
   bv_processed_.setPointsScale(_points_scale_);
   bv_processed_.setLinesScale(_lines_scale_);
+
+  // | ------------------------- timers ------------------------- |
+
+  timer_main_         = nh_.createTimer(ros::Rate(_rate_main_timer_), &Pathfinder::timerMain, this);
+  timer_future_check_ = nh_.createTimer(ros::Rate(_rate_future_check_timer_), &Pathfinder::timerFutureCheck, this);
+  timer_diagnostics_  = nh_.createTimer(ros::Rate(_rate_diagnostics_timer_), &Pathfinder::timerDiagnostics, this);
 
   // | --------------------- finish the init -------------------- |
 
