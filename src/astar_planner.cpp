@@ -121,6 +121,20 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   auto planning_start = tree.keyToCoord(start);
   auto goal           = tree.coordToKey(map_goal);
 
+  if (distEuclidean(planning_start, map_goal) <= planning_tree_resolution) {
+
+    ROS_INFO("[%s]: Path special case, we are there", ros::this_node::getName().c_str());
+
+    bv->clearVisuals();
+    bv->clearBuffers();
+    visualizeTreeCubes(tree, true);
+    visualizeGoal(goal_coord);
+    visualizeExpansions(open, closed, tree);
+    bv->publish();
+
+    return {std::vector<octomap::point3d>(), false};
+  }
+
   std::cout << "Planning from: " << planning_start.x() << ", " << planning_start.y() << ", " << planning_start.z() << std::endl;
   std::cout << "Planning to: " << map_goal.x() << ", " << map_goal.y() << ", " << map_goal.z() << std::endl;
 
@@ -158,7 +172,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       bv->clearVisuals();
       bv->clearBuffers();
-      /* visualizeTreeCubes(tree, true); */
+      visualizeTreeCubes(tree, true);
+      visualizeGoal(goal_coord);
       visualizeExpansions(open, closed, tree);
       bv->publish();
 
@@ -176,7 +191,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       bv->clearVisuals();
       bv->clearBuffers();
-      /* visualizeTreeCubes(tree, true); */
+      visualizeTreeCubes(tree, true);
+      visualizeGoal(goal_coord);
       visualizeExpansions(open, closed, tree);
       bv->publish();
 
@@ -224,7 +240,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   bv->clearVisuals();
   bv->clearBuffers();
-  /* visualizeTreeCubes(tree, true); */
+  visualizeTreeCubes(tree, true);
+  visualizeGoal(goal_coord);
   visualizeExpansions(open, closed, tree);
   bv->publish();
 
@@ -610,7 +627,7 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
     mrs_lib::geometry::Cuboid c(center, size, orientation);
 
     if (it->getValue() == TreeValue::OCCUPIED) {
-      bv->addCuboid(c, 0.2, 1.0, 0.2, 0.5, true);
+      bv->addCuboid(c, 0.1, 0.5, 0.1, 0.2, true);
       /* bv->addCuboid(c, 0, 0, 0, 0.3, false); */
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 0.8, true); */
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 1.0, false); */
@@ -620,6 +637,21 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
       /* bv->addCuboid(c, 0.5, 0.5, 0.5, 0.5, true); */
     }
   }
+}
+
+//}
+
+/* visualizeGoal() //{ */
+
+void AstarPlanner::visualizeGoal(const octomap::point3d &goal) {
+
+  Eigen::Vector3d           center(goal.x(), goal.y(), goal.z());
+  double                    cube_scale  = 0.5;
+  Eigen::Vector3d           size        = Eigen::Vector3d(1, 1, 1) * cube_scale;
+  Eigen::Quaterniond        orientation = Eigen::Quaterniond::Identity();
+  mrs_lib::geometry::Cuboid c(center, size, orientation);
+
+  bv->addCuboid(c, 1.0, 0.0, 1.0, 1.0, true);
 }
 
 //}

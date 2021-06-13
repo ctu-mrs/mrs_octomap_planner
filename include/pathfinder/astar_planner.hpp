@@ -110,6 +110,8 @@ private:
 
   void visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied);
 
+  void visualizeGoal(const octomap::point3d &goal);
+
   void visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupied);
 
   void visualizeExpansions(const std::unordered_set<Node, HashFunction> &open, const std::unordered_set<Node, HashFunction> &closed, octomap::OcTree &tree);

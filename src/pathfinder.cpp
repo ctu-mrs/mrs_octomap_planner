@@ -1040,7 +1040,7 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
   mrs_msgs::MpcPredictionFullStateConstPtr    prediction           = sh_mpc_prediction_.getMsg();
   mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
 
-  if (control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
+  if (state_ != STATE_IDLE && control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
 
     mrs_lib::TransformStamped tf;
 
@@ -1092,7 +1092,7 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
         bool ray_is_cool = true;
         for (octomap::KeyRay::iterator it1 = key_ray.begin(), end = key_ray.end(); it1 != end; ++it1) {
           auto node = octree->search(*it1);
-          if (!node || octree->isNodeOccupied(node)) {
+          if (node && octree->isNodeOccupied(node)) {
             ray_is_cool = false;
             break;
           }
