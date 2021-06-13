@@ -127,7 +127,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     bv->clearVisuals();
     bv->clearBuffers();
-    visualizeTreeCubes(tree, true);
+    /* visualizeTreeCubes(tree, true); */
     visualizeGoal(goal_coord);
     visualizeExpansions(open, closed, tree);
     bv->publish();
@@ -172,7 +172,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       bv->clearVisuals();
       bv->clearBuffers();
-      visualizeTreeCubes(tree, true);
+      /* visualizeTreeCubes(tree, true); */
       visualizeGoal(goal_coord);
       visualizeExpansions(open, closed, tree);
       bv->publish();
@@ -191,7 +191,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       bv->clearVisuals();
       bv->clearBuffers();
-      visualizeTreeCubes(tree, true);
+      /* visualizeTreeCubes(tree, true); */
       visualizeGoal(goal_coord);
       visualizeExpansions(open, closed, tree);
       bv->publish();
@@ -240,7 +240,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   bv->clearVisuals();
   bv->clearBuffers();
-  visualizeTreeCubes(tree, true);
+  /* visualizeTreeCubes(tree, true); */
   visualizeGoal(goal_coord);
   visualizeExpansions(open, closed, tree);
   bv->publish();
