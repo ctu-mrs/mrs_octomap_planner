@@ -730,7 +730,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         diagnostics_.idle = false;
       }
 
-      if (replanning_counter_ >= 3) {
+      if (replanning_counter_ >= 2) {
 
         ROS_ERROR("[Pathfinder]: planning failed, the uav is stuck, hovering!");
 
