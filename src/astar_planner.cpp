@@ -371,17 +371,21 @@ bool AstarPlanner::freeStraightPath(const octomap::point3d p1, const octomap::po
       // Path may exist, but goes through unknown cells
       return false;
     }
+
     if (tree_node->getValue() == TreeValue::OCCUPIED) {
       // Path goes through occupied cells
       return false;
     }
-    if (max_waypoint_distance > 0 && (p1 - p2).norm() > max_waypoint_distance) {
-      return false;
-    }
+
+    /* if (max_waypoint_distance > 0 && (p1 - p2).norm() > max_waypoint_distance) { */
+    /*   return false; */
+    /* } */
+
   }
 
   return true;
 }
+
 //}
 
 /* backtrackPathKeys() //{ */
@@ -574,15 +578,22 @@ std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<oc
   std::vector<octomap::point3d> filtered;
 
   /* removing obsolete points //{ */
+
   filtered.push_back(padded.front());
+
   int i = 2;
+
   while (i < padded.size()) {
+
     if (!freeStraightPath(filtered.back(), padded[i], tree)) {
       filtered.push_back(padded[i - 1]);
     }
+
     i++;
   }
+
   filtered.push_back(padded.back());
+
   //}
 
   return filtered;
