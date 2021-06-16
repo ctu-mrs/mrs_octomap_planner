@@ -77,7 +77,10 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   this->timeout_threshold = timeout;
 
-  auto tree_with_tunnel = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution);
+  ros::Time time_start_planning_tree = ros::Time::now();
+  auto      tree_with_tunnel         = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution, start_coord, 10.0);
+  ROS_INFO_THROTTLE(1.0, "[%s]: the planning tree too %.2f s to create", ros::this_node::getName().c_str(),
+                    (ros::Time::now() - time_start_planning_tree).toSec());
 
   if (!tree_with_tunnel) {
     ROS_WARN_THROTTLE(1.0, "[%s]: could not create a plannig tree", ros::this_node::getName().c_str());
@@ -90,14 +93,18 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   auto map_goal  = goal_coord;
   auto map_query = mapping_tree->search(goal_coord);
 
+  bool original_goal = true;
+
   if (map_query == NULL) {
     ROS_INFO("[%s]: Goal is outside of map", ros::this_node::getName().c_str());
     map_goal = generateTemporaryGoal(start_coord, goal_coord, tree);
     ROS_INFO("[%s]: Generated a temporary goal: [%.2f, %.2f, %.2f]", ros::this_node::getName().c_str(), map_goal.x(), map_goal.y(), map_goal.z());
+    original_goal = false;
   } else if (map_query->getValue() == TreeValue::OCCUPIED) {
     ROS_INFO("[%s]: Goal is inside an inflated obstacle", ros::this_node::getName().c_str());
     map_goal = nearestFreeCoord(goal_coord, start_coord, tree);
     ROS_INFO("[%s]: Generated a replacement goal: [%.2f, %.2f, %.2f]", ros::this_node::getName().c_str(), map_goal.x(), map_goal.y(), map_goal.z());
+    original_goal = false;
   }
 
   mrs_lib::geometry::Cuboid c_start(Eigen::Vector3d(start_coord.x(), start_coord.y(), start_coord.z()), Eigen::Vector3d(0.3, 0.3, 0.3),
@@ -196,7 +203,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
       visualizeExpansions(open, closed, tree);
       bv->publish();
 
-      return {prepareOutputPath(path_keys, tree), true};
+      return {prepareOutputPath(path_keys, tree), original_goal};
     }
 
     // expand
@@ -380,7 +387,6 @@ bool AstarPlanner::freeStraightPath(const octomap::point3d p1, const octomap::po
     /* if (max_waypoint_distance > 0 && (p1 - p2).norm() > max_waypoint_distance) { */
     /*   return false; */
     /* } */
-
   }
 
   return true;
@@ -429,7 +435,10 @@ std::vector<octomap::point3d> AstarPlanner::keysToCoords(std::vector<octomap::Oc
 
 /* euclideanDistanceTransform() //{ */
 
-DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree) {
+DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &orig_coord, double radius) {
+
+  /* octomap::point3d metric_min(orig_coord.x() - radius, orig_coord.y() - radius, orig_coord.z() - radius); */
+  /* octomap::point3d metric_max(orig_coord.x() + radius, orig_coord.y() + radius, orig_coord.z() + radius); */
 
   double x, y, z;
 
@@ -449,9 +458,10 @@ DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octom
 /* createPlanningTree() //{ */
 
 std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPlanner::createPlanningTree(std::shared_ptr<octomap::OcTree> tree,
-                                                                                                          const octomap::point3d &start, double resolution) {
+                                                                                                          const octomap::point3d &start, double resolution,
+                                                                                                          const octomap::point3d &orig_coord, double radius) {
 
-  auto            edf         = euclideanDistanceTransform(tree);
+  auto            edf         = euclideanDistanceTransform(tree, orig_coord, radius);
   octomap::OcTree binary_tree = octomap::OcTree(resolution);
 
   tree->expand();
@@ -491,7 +501,6 @@ std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPl
 
       edf.getDistanceAndClosestObstacle(current_coords, obstacle_dist, closest_obstacle);
       octomap::point3d dir_away_from_obstacle = current_coords - closest_obstacle;
-      dir_away_from_obstacle.z()              = 0.0f;
 
       if (obstacle_dist >= safe_obstacle_distance) {
         std::cout << "Tunnel created with " << tunnel.size() << " points" << std::endl;

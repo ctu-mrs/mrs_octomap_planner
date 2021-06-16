@@ -732,9 +732,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       if (replanning_counter_ >= 2) {
 
-        ROS_ERROR("[Pathfinder]: planning failed, the uav is stuck, hovering!");
-
-        hover();
+        ROS_ERROR("[Pathfinder]: planning failed, the uav is stuck");
 
         changeState(STATE_IDLE);
 
@@ -786,7 +784,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         replanning_counter_ = 0;
 
-        /* waypoints.first.push_back(user_goal_octpoint); */
+        waypoints.first.push_back(user_goal_octpoint);
 
       } else {
 
@@ -897,7 +895,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         cum_time += segment_times[i];
 
-        if (cum_time > 15.0) {
+        if (i > 1 && cum_time > 15.0) {
           ROS_INFO("[Pathfinder]: cutting path in waypoint %d out of %d", i, int(waypoints.first.size()));
           break;
         }
