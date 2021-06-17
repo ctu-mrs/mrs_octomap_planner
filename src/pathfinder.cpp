@@ -1089,6 +1089,7 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
 
         bool ray_is_cool = true;
         for (octomap::KeyRay::iterator it1 = key_ray.begin(), end = key_ray.end(); it1 != end; ++it1) {
+
           auto node = octree->search(*it1);
           if (node && octree->isNodeOccupied(node)) {
             ray_is_cool = false;

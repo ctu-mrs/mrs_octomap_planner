@@ -32,8 +32,8 @@
       <!-- topics in -->
 
       <remap from="~position_cmd_in" to="control_manager/position_cmd" />
-      <remap from="~octomap_in" to="octomap_server/octomap_full" />
-      <!-- <remap from="~octomap_in" to="octomap_server/octomap_local" /> -->
+      <!-- <remap from="~octomap_in" to="octomap_server/octomap_global_full" /> -->
+      <remap from="~octomap_in" to="octomap_server/octomap_local_full" />
       <remap from="~mpc_prediction_in" to="control_manager/mpc_tracker/prediction_full_state" />
       <remap from="~control_manager_diag_in" to="control_manager/diagnostics" />
       <remap from="~constraints_in" to="control_manager/current_constraints" />
