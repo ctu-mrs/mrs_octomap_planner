@@ -141,8 +141,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     return {std::vector<octomap::point3d>(), false};
   }
 
-  ROS_INFO_STREAM("Planning from: " << planning_start.x() << ", " << planning_start.y() << ", " << planning_start.z());
-  ROS_INFO_STREAM("Planning to: " << map_goal.x() << ", " << map_goal.y() << ", " << map_goal.z());
+  ROS_INFO_STREAM("[Astar]: Planning from: " << planning_start.x() << ", " << planning_start.y() << ", " << planning_start.z());
+  ROS_INFO_STREAM("[Astar]: Planning to: " << map_goal.x() << ", " << map_goal.y() << ", " << map_goal.z());
 
   Node first;
   first.key        = start;
