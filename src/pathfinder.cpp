@@ -263,7 +263,7 @@ void Pathfinder::onInit() {
   shopts.no_message_timeout = mrs_lib::no_timeout;
   shopts.threadsafe         = true;
   shopts.autostart          = true;
-  shopts.queue_size         = 10;
+  shopts.queue_size         = 1;
   shopts.transport_hints    = ros::TransportHints().tcpNoDelay();
 
   sh_position_cmd_ = mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>(shopts, "position_cmd_in", ros::Duration(3.0), &Pathfinder::timeoutPositionCmd, this,
