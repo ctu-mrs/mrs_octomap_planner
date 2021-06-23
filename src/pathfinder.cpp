@@ -22,6 +22,7 @@
 #include <mrs_lib/param_loader.h>
 #include <mrs_lib/subscribe_handler.h>
 #include <mrs_lib/mutex.h>
+#include <mrs_lib/scope_timer.h>
 #include <mrs_lib/service_client_handler.h>
 #include <mrs_lib/transformer.h>
 #include <mrs_lib/geometry/misc.h>
@@ -244,7 +245,7 @@ void Pathfinder::onInit() {
 
   if (!param_loader.loadedSuccessfully()) {
     ROS_ERROR("[Pathfinder]: could not load all parameters");
-    ros::requestShutdown();
+    ros::shutdown();
   }
 
   // | ---------------------- state machine --------------------- |
@@ -674,13 +675,6 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
   ROS_INFO_ONCE("[Pathfinder]: main timer spinning");
 
-  // copy the octomap locally
-  std::shared_ptr<octomap::OcTree> octree;
-  {
-    std::scoped_lock lock(mutex_octree_);
-    octree = std::make_shared<octomap::OcTree>(*octree_);
-  }
-
   const auto user_goal = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
 
   const mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
@@ -723,6 +717,16 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       /* STATE_PLANNING //{ */
 
     case STATE_PLANNING: {
+
+      // copy the octomap locally
+      std::shared_ptr<octomap::OcTree> octree;
+      std::string                      octree_frame;
+      {
+        std::scoped_lock lock(mutex_octree_);
+
+        octree       = std::make_shared<octomap::OcTree>(*octree_);
+        octree_frame = octree_frame_;
+      }
 
       {
         std::scoped_lock lock(mutex_diagnostics_);
@@ -1022,6 +1026,10 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
 
   //}
 
+  if (state_ == STATE_IDLE) {
+    return;
+  }
+
   ROS_INFO_ONCE("[Pathfinder]: future check timer spinning");
 
   // | ----------- check if the prediction is feasible ---------- |
@@ -1038,7 +1046,7 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
   mrs_msgs::MpcPredictionFullStateConstPtr    prediction           = sh_mpc_prediction_.getMsg();
   mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
 
-  if (state_ != STATE_IDLE && control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
+  if (control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
 
     mrs_lib::TransformStamped tf;
 
