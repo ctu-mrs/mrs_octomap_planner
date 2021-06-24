@@ -79,7 +79,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   ros::Time time_start_planning_tree = ros::Time::now();
   auto      tree_with_tunnel         = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution, start_coord, 10.0);
-  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree too %.2f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
+  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.2f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
 
   if (!tree_with_tunnel) {
     ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a plannig tree");
@@ -127,7 +127,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   auto planning_start = tree.keyToCoord(start);
   auto goal           = tree.coordToKey(map_goal);
 
-  if (distEuclidean(planning_start, map_goal) <= planning_tree_resolution) {
+  if (distEuclidean(planning_start, map_goal) <= 2 * planning_tree_resolution) {
 
     ROS_INFO("[Astar]: Path special case, we are there");
 
@@ -187,9 +187,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     }
 
     auto current_coord = tree.keyToCoord(current.key);
-    /* std::cout << "Current coord: " << current_coord.x() << ", " << current_coord.y() << ", " << current_coord.z() << std::endl; */
 
-    if (distEuclidean(current_coord, map_goal) <= planning_tree_resolution) {
+    if (distEuclidean(current_coord, map_goal) <= 2 * planning_tree_resolution) {
 
       auto path_keys = backtrackPathKeys(current, first, parent_map);
       path_keys.push_back(tree.coordToKey(map_goal));
@@ -464,7 +463,7 @@ std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPl
 
   if (binary_tree_query != NULL && binary_tree_query->getValue() != TreeValue::FREE) {
 
-    std::cout << "Start is inside an inflated obstacle. Tunneling out..." << std::endl;
+    ROS_WARN("[%s]: start is inside of an inflated obstacle, tunneling out", ros::this_node::getName().c_str());
 
     // tunnel out of expanded walls
 
@@ -486,11 +485,11 @@ std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPl
       octomap::point3d dir_away_from_obstacle = current_coords - closest_obstacle;
 
       if (obstacle_dist >= safe_obstacle_distance) {
-        std::cout << "Tunnel created with " << tunnel.size() << " points" << std::endl;
+        ROS_INFO("[%s]: tunnel create with %d", ros::this_node::getName().c_str(), int(tunnel.size()));
         break;
       }
 
-      current_coords += dir_away_from_obstacle.normalized() * binary_tree.getResolution();
+      current_coords += dir_away_from_obstacle.normalized() * float(binary_tree.getResolution());
 
       int iter2 = 0;
 
@@ -500,7 +499,7 @@ std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPl
           return {};
         }
 
-        current_coords += dir_away_from_obstacle.normalized() * binary_tree.getResolution();
+        current_coords += dir_away_from_obstacle.normalized() * float(binary_tree.getResolution());
       }
 
       binary_tree_query = binary_tree.search(current_coords);

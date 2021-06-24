@@ -84,7 +84,6 @@ private:
   double _timeout_threshold_;
   double _time_for_trajectory_generator_;
   double _max_waypoint_distance_;
-  double _endpoint_tolerance_;
   double _min_altitude_;
   double _max_altitude_;
   double _rate_main_timer_;
@@ -234,7 +233,6 @@ void Pathfinder::onInit() {
   param_loader.loadParam("planning_tree_resolution", _planning_tree_resolution_);
   param_loader.loadParam("unknown_is_occupied", _unknown_is_occupied_);
   param_loader.loadParam("points_scale", _points_scale_);
-  param_loader.loadParam("endpoint_tolerance", _endpoint_tolerance_);
   param_loader.loadParam("lines_scale", _lines_scale_);
   param_loader.loadParam("max_waypoint_distance", _max_waypoint_distance_);
   param_loader.loadParam("min_altitude", _min_altitude_);
@@ -980,7 +978,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       ROS_INFO_THROTTLE(1.0, "[Pathfinder]: dist to goal: %.2f m", dist_to_goal);
 
-      if (dist_to_goal < _endpoint_tolerance_) {
+      if (dist_to_goal < 2*_planning_tree_resolution_) {
         ROS_INFO("[Pathfinder]: user goal reached");
         changeState(STATE_IDLE);
         break;
