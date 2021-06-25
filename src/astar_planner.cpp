@@ -274,7 +274,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 }
 //}
 
-/* getNeighborKeys() //{ */
+/* getNeighborhood() //{ */
 
 std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcTreeKey &key, octomap::OcTree &tree) {
 
@@ -311,23 +311,8 @@ octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std
   k.k[2] = key.k[2] + direction[2];
 
   return k;
-
-  /* // expand outward until a new octree node is reached */
-  /* auto tree_query = tree.search(k); */
-
-  /* int i = 1; */
-
-  /* while (tree.search(k) == prev_node) { */
-
-  /*   ++i; */
-
-  /*   k.k[0] = key.k[0] + i * direction[0]; */
-  /*   k.k[1] = key.k[1] + i * direction[1]; */
-  /*   k.k[2] = key.k[2] + i * direction[2]; */
-  /* } */
-
-  /* return k; */
 }
+
 //}
 
 /* distEuclidean() //{ */
