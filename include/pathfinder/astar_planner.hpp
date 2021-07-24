@@ -71,7 +71,7 @@ private:
   std::shared_ptr<mrs_lib::BatchVisualizer> bv;
 
 public:
-  std::pair<std::vector<octomap::point3d>, bool> findPath(const octomap::point3d &start, const octomap::point3d &goal,
+  std::pair<std::vector<Eigen::Vector4d> , bool> findPath(const octomap::point3d &start, const octomap::point3d &goal,
                                                           std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout);
 
 private:
@@ -107,7 +107,9 @@ private:
 
   std::vector<octomap::point3d> postprocessPath(const std::vector<octomap::point3d> &waypoints, octomap::OcTree &tree);
 
-  std::vector<octomap::point3d> prepareOutputPath(const std::vector<octomap::OcTreeKey> &keys, octomap::OcTree &tree);
+  std::vector<Eigen::Vector4d> addHeadingToPath(const std::vector<octomap::point3d> &processed);
+
+  std::vector<Eigen::Vector4d> prepareOutputPath(const std::vector<octomap::OcTreeKey> &keys, octomap::OcTree &tree);
 
   void visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied);
 

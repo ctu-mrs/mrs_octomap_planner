@@ -682,6 +682,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
   user_goal_octpoint.x() = user_goal.position.x;
   user_goal_octpoint.y() = user_goal.position.y;
   user_goal_octpoint.z() = user_goal.position.z;
+  
 
   {
     std::scoped_lock lock(mutex_diagnostics_);
@@ -779,14 +780,20 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
                                    _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
-      std::pair<std::vector<octomap::point3d>, bool> waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
+      std::pair<std::vector<Eigen::Vector4d>, bool> waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
 
       // path is complete
+      Eigen::Vector4d  user_goal_4d;
+      user_goal_4d.x() =   user_goal_octpoint.x();
+     user_goal_4d.y() =  user_goal_octpoint.y();
+      user_goal_4d.z() = user_goal_octpoint.z();
+
+
       if (waypoints.second) {
 
         replanning_counter_ = 0;
 
-        waypoints.first.push_back(user_goal_octpoint);
+        waypoints.first.push_back(user_goal_4d);
 
       } else {
 
@@ -876,7 +883,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         eig_waypoint[0] = w.x();
         eig_waypoint[1] = w.y();
         eig_waypoint[2] = w.z();
-        eig_waypoint[4] = user_goal.heading;
+        eig_waypoint[4] = w.w();user_goal.heading;
 
         eig_waypoints.push_back(eig_waypoint);
       }
@@ -891,7 +898,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         ref.position.x = waypoints.first[i].x();
         ref.position.y = waypoints.first[i].y();
         ref.position.z = waypoints.first[i].z();
-        ref.heading    = user_goal.heading;
+        ref.heading    = waypoints.first[i].w();//user_goal.heading;
 
         srv_get_path.request.path.points.push_back(ref);
 

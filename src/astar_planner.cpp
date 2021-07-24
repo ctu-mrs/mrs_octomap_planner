@@ -1,15 +1,10 @@
 #include <pathfinder/astar_planner.hpp>
 
-namespace pathfinder
-{
+namespace pathfinder {
 
-bool Node::operator==(const Node &other) const {
-  return key == other.key;
-}
+bool Node::operator==(const Node &other) const { return key == other.key; }
 
-bool Node::operator!=(const Node &other) const {
-  return key != other.key;
-}
+bool Node::operator!=(const Node &other) const { return key != other.key; }
 
 bool Node::operator<(const Node &other) const {
 
@@ -43,33 +38,38 @@ bool HashFunction::operator()(const Node &n) const {
   return ((hash<int>()(n.key.k[0]) ^ (hash<int>()(n.key.k[1]) << 1)) >> 1) ^ (hash<int>()(n.key.k[2]) << 1);
 }
 
-bool LeafComparator::operator()(const std::pair<octomap::OcTree::iterator, double> &l1, const std::pair<octomap::OcTree::iterator, double> &l2) const {
+bool LeafComparator::operator()(const std::pair<octomap::OcTree::iterator, double> &l1,
+                                const std::pair<octomap::OcTree::iterator, double> &l2) const {
   return l1.second < l2.second;
 }
 
 /* AstarPlanner constructor //{ */
-AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty,
-                           double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude,
-                           bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
+AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff,
+                           double planning_tree_resolution, double distance_penalty, double greedy_penalty,
+                           double timeout_threshold, double max_waypoint_distance, double min_altitude,
+                           double max_altitude, bool unknown_is_occupied,
+                           std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
 
-  this->safe_obstacle_distance    = safe_obstacle_distance;
+  this->safe_obstacle_distance = safe_obstacle_distance;
   this->euclidean_distance_cutoff = euclidean_distance_cutoff;
-  this->planning_tree_resolution  = planning_tree_resolution;
-  this->distance_penalty          = distance_penalty;
-  this->greedy_penalty            = greedy_penalty;
-  this->timeout_threshold         = timeout_threshold;
-  this->max_waypoint_distance     = max_waypoint_distance;
-  this->min_altitude              = min_altitude;
-  this->max_altitude              = max_altitude;
-  this->unknown_is_occupied       = unknown_is_occupied;
-  this->bv                        = bv;
+  this->planning_tree_resolution = planning_tree_resolution;
+  this->distance_penalty = distance_penalty;
+  this->greedy_penalty = greedy_penalty;
+  this->timeout_threshold = timeout_threshold;
+  this->max_waypoint_distance = max_waypoint_distance;
+  this->min_altitude = min_altitude;
+  this->max_altitude = max_altitude;
+  this->unknown_is_occupied = unknown_is_occupied;
+  this->bv = bv;
 }
 //}
 
 /* findPath main //{ */
 
-std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octomap::point3d &start_coord, const octomap::point3d &goal_coord,
-                                                                      std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout) {
+std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const octomap::point3d &start_coord,
+                                                                      const octomap::point3d &goal_coord,
+                                                                      std::shared_ptr<octomap::OcTree> mapping_tree,
+                                                                      const double timeout) {
 
   ROS_INFO("[Astar]: Astar: user goal [%.2f, %.2f, %.2f]", goal_coord.x(), goal_coord.y(), goal_coord.z());
 
@@ -78,18 +78,19 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   this->timeout_threshold = timeout;
 
   ros::Time time_start_planning_tree = ros::Time::now();
-  auto      tree_with_tunnel         = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution, start_coord, 10.0);
-  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.2f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
+  auto tree_with_tunnel = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution, start_coord, 10.0);
+  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.2f s to create",
+                    (ros::Time::now() - time_start_planning_tree).toSec());
 
   if (!tree_with_tunnel) {
     ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a plannig tree");
-    return {std::vector<octomap::point3d>(), false};
+    return {std::vector<Eigen::Vector4d>(), false};
   }
 
-  auto tree   = tree_with_tunnel.value().first;
+  auto tree = tree_with_tunnel.value().first;
   auto tunnel = tree_with_tunnel.value().second;
 
-  auto map_goal  = goal_coord;
+  auto map_goal = goal_coord;
   auto map_query = mapping_tree->search(goal_coord);
 
   bool original_goal = true;
@@ -106,16 +107,17 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     original_goal = false;
   }
 
-  mrs_lib::geometry::Cuboid c_start(Eigen::Vector3d(start_coord.x(), start_coord.y(), start_coord.z()), Eigen::Vector3d(0.3, 0.3, 0.3),
-                                    Eigen::Quaterniond::Identity());
-  mrs_lib::geometry::Cuboid c_goal(Eigen::Vector3d(map_goal.x(), map_goal.y(), map_goal.z()), Eigen::Vector3d(0.3, 0.3, 0.3), Eigen::Quaterniond::Identity());
+  mrs_lib::geometry::Cuboid c_start(Eigen::Vector3d(start_coord.x(), start_coord.y(), start_coord.z()),
+                                    Eigen::Vector3d(0.3, 0.3, 0.3), Eigen::Quaterniond::Identity());
+  mrs_lib::geometry::Cuboid c_goal(Eigen::Vector3d(map_goal.x(), map_goal.y(), map_goal.z()),
+                                   Eigen::Vector3d(0.3, 0.3, 0.3), Eigen::Quaterniond::Identity());
   bv->addCuboid(c_start, 0.9, 0.6, 0.1, 1);
   bv->addCuboid(c_goal, 0.1, 0.9, 0.6, 1);
 
   std::priority_queue<Node, std::vector<Node>, CostComparator> open_heap;
-  std::unordered_set<Node, HashFunction>                       open;
-  std::unordered_set<Node, HashFunction>                       closed;
-  std::unordered_map<Node, Node, HashFunction>                 parent_map;  // first = child, second = parent
+  std::unordered_set<Node, HashFunction> open;
+  std::unordered_set<Node, HashFunction> closed;
+  std::unordered_map<Node, Node, HashFunction> parent_map; // first = child, second = parent
 
   octomap::OcTreeKey start;
   if (tunnel.empty()) {
@@ -125,7 +127,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   }
 
   auto planning_start = tree.keyToCoord(start);
-  auto goal           = tree.coordToKey(map_goal);
+  auto goal = tree.coordToKey(map_goal);
 
   if (distEuclidean(planning_start, map_goal) <= 2 * planning_tree_resolution) {
 
@@ -138,21 +140,22 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     visualizeExpansions(open, closed, tree);
     bv->publish();
 
-    return {std::vector<octomap::point3d>(), false};
+    return {std::vector<Eigen::Vector4d>(), false};
   }
 
-  ROS_INFO_STREAM("[Astar]: Planning from: " << planning_start.x() << ", " << planning_start.y() << ", " << planning_start.z());
+  ROS_INFO_STREAM("[Astar]: Planning from: " << planning_start.x() << ", " << planning_start.y() << ", "
+                                             << planning_start.z());
   ROS_INFO_STREAM("[Astar]: Planning to: " << map_goal.x() << ", " << map_goal.y() << ", " << map_goal.z());
 
   Node first;
-  first.key        = start;
-  first.cum_dist   = 0;
-  first.goal_dist  = distEuclidean(start, goal, tree);
+  first.key = start;
+  first.cum_dist = 0;
+  first.goal_dist = distEuclidean(start, goal, tree);
   first.total_cost = first.cum_dist + first.goal_dist;
   open_heap.push(first);
   open.insert(first);
 
-  Node best_node        = first;
+  Node best_node = first;
   Node best_node_greedy = first;
 
   int iter = 0;
@@ -208,7 +211,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     auto neighbors = getNeighborhood(current.key, tree);
 
     /* ROS_INFO_STREAM("poped " << current.key.k); */
-    /* ROS_INFO("[%s]: iter %d, open %d, closed %d, neighbours %d", ros::this_node::getName().c_str(), iter++, open.size(), closed.size(), neighbors.size()); */
+    /* ROS_INFO("[%s]: iter %d, open %d, closed %d, neighbours %d", ros::this_node::getName().c_str(), iter++,
+     * open.size(), closed.size(), neighbors.size()); */
 
     for (auto &nkey : neighbors) {
 
@@ -219,11 +223,11 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
       n.key = nkey;
 
       auto closed_query = closed.find(n);
-      auto open_query   = open.find(n);
+      auto open_query = open.find(n);
 
       // in open map
-      n.goal_dist  = distEuclidean(nkey, goal, tree);
-      n.cum_dist   = current.cum_dist + distEuclidean(current.key, nkey, tree);
+      n.goal_dist = distEuclidean(nkey, goal, tree);
+      n.cum_dist = current.cum_dist + distEuclidean(current.key, nkey, tree);
       n.total_cost = greedy_penalty * n.goal_dist + distance_penalty * n.cum_dist;
 
       if (closed_query == closed.end() && open_query == open.end()) {
@@ -270,7 +274,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   ROS_WARN("[Astar]: PATH DOES NOT EXIST!");
 
-  return {std::vector<octomap::point3d>(), false};
+  return {std::vector<Eigen::Vector4d>(), false};
 }
 //}
 
@@ -282,12 +286,13 @@ std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcT
 
   for (auto &d : EXPANSION_DIRECTIONS) {
 
-    auto newkey    = expand(key, d, tree);
+    auto newkey = expand(key, d, tree);
     auto tree_node = tree.search(newkey);
 
     if (tree_node != NULL) {
       // free cell?
-      if (tree_node->getValue() == TreeValue::FREE && tree.keyToCoord(newkey).z() >= min_altitude && tree.keyToCoord(newkey).z() <= max_altitude) {
+      if (tree_node->getValue() == TreeValue::FREE && tree.keyToCoord(newkey).z() >= min_altitude &&
+          tree.keyToCoord(newkey).z() <= max_altitude) {
         neighbors.push_back(newkey);
       }
     }
@@ -300,7 +305,8 @@ std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcT
 
 /* expand() //{ */
 
-octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std::vector<int> &direction, octomap::OcTree &tree) {
+octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std::vector<int> &direction,
+                                        octomap::OcTree &tree) {
 
   auto prev_node = tree.search(key);
 
@@ -317,10 +323,7 @@ octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std
 
 /* distEuclidean() //{ */
 
-double AstarPlanner::distEuclidean(const octomap::point3d &p1, const octomap::point3d &p2) {
-
-  return (p1 - p2).norm();
-}
+double AstarPlanner::distEuclidean(const octomap::point3d &p1, const octomap::point3d &p2) { return (p1 - p2).norm(); }
 
 double AstarPlanner::distEuclidean(const octomap::OcTreeKey &k1, const octomap::OcTreeKey &k2, octomap::OcTree &tree) {
 
@@ -364,7 +367,9 @@ bool AstarPlanner::freeStraightPath(const octomap::point3d p1, const octomap::po
 
 /* backtrackPathKeys() //{ */
 
-std::vector<octomap::OcTreeKey> AstarPlanner::backtrackPathKeys(const Node &from, const Node &to, std::unordered_map<Node, Node, HashFunction> &parent_map) {
+std::vector<octomap::OcTreeKey>
+AstarPlanner::backtrackPathKeys(const Node &from, const Node &to,
+                                std::unordered_map<Node, Node, HashFunction> &parent_map) {
 
   std::vector<octomap::OcTreeKey> keys;
 
@@ -402,7 +407,8 @@ std::vector<octomap::point3d> AstarPlanner::keysToCoords(std::vector<octomap::Oc
 
 /* euclideanDistanceTransform() //{ */
 
-DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &orig_coord, double radius) {
+DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree,
+                                                           const octomap::point3d &orig_coord, double radius) {
 
   /* octomap::point3d metric_min(orig_coord.x() - radius, orig_coord.y() - radius, orig_coord.z() - radius); */
   /* octomap::point3d metric_max(orig_coord.x() + radius, orig_coord.y() + radius, orig_coord.z() + radius); */
@@ -424,27 +430,27 @@ DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octom
 
 /* createPlanningTree() //{ */
 
-std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPlanner::createPlanningTree(std::shared_ptr<octomap::OcTree> tree,
-                                                                                                          const octomap::point3d &start, double resolution,
-                                                                                                          const octomap::point3d &orig_coord, double radius) {
+std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>>
+AstarPlanner::createPlanningTree(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start,
+                                 double resolution, const octomap::point3d &orig_coord, double radius) {
 
-  auto            edf         = euclideanDistanceTransform(tree, orig_coord, radius);
+  auto edf = euclideanDistanceTransform(tree, orig_coord, radius);
   octomap::OcTree binary_tree = octomap::OcTree(resolution);
 
   tree->expand();
 
   for (auto it = tree->begin(); it != tree->end(); it++) {
     if (edf.getDistance(it.getCoordinate()) <= safe_obstacle_distance) {
-      binary_tree.setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED);  // obstacle or close to obstacle
+      binary_tree.setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED); // obstacle or close to obstacle
     } else {
-      binary_tree.setNodeValue(it.getCoordinate(), TreeValue::FREE);  // free and safe
+      binary_tree.setNodeValue(it.getCoordinate(), TreeValue::FREE); // free and safe
     }
   }
 
   std::vector<octomap::point3d> tunnel;
 
-  octomap::point3d current_coords    = start;
-  auto             binary_tree_query = binary_tree.search(current_coords);
+  octomap::point3d current_coords = start;
+  auto binary_tree_query = binary_tree.search(current_coords);
 
   if (binary_tree_query != NULL && binary_tree_query->getValue() != TreeValue::FREE) {
 
@@ -463,7 +469,7 @@ std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPl
       tunnel.push_back(current_coords);
       binary_tree.setNodeValue(current_coords, TreeValue::FREE);
 
-      float            obstacle_dist;
+      float obstacle_dist;
       octomap::point3d closest_obstacle;
 
       edf.getDistanceAndClosestObstacle(current_coords, obstacle_dist, closest_obstacle);
@@ -500,7 +506,8 @@ std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPl
 
 /* nearestFreeCoord() //{ */
 
-octomap::point3d AstarPlanner::nearestFreeCoord(const octomap::point3d &p, const octomap::point3d &uav_pos, octomap::OcTree &tree) {
+octomap::point3d AstarPlanner::nearestFreeCoord(const octomap::point3d &p, const octomap::point3d &uav_pos,
+                                                octomap::OcTree &tree) {
 
   auto query = tree.search(p);
   if (query != NULL && query->getValue() == TreeValue::FREE) {
@@ -526,15 +533,16 @@ octomap::point3d AstarPlanner::nearestFreeCoord(const octomap::point3d &p, const
 
 /* postprocessPath() //{ */
 
-std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<octomap::point3d> &waypoints, octomap::OcTree &tree) {
+std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<octomap::point3d> &waypoints,
+                                                            octomap::OcTree &tree) {
 
   if (waypoints.size() < 2) {
     ROS_WARN("[Astar]: Not enough points for postprocessing!");
     return waypoints;
   }
 
-  std::vector<octomap::point3d> padded         = waypoints;
-  size_t                        waypoints_size = waypoints.size();
+  std::vector<octomap::point3d> padded = waypoints;
+  size_t waypoints_size = waypoints.size();
 
   /* padding with additional points if the distances exceed threshold //{ */
 
@@ -578,9 +586,39 @@ std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<oc
 }
 //}
 
-/* prepareOutputPath() //{ */
+float getAngleTwo2DPoint(float point1_x, float point1_y, float point2_x, float point2_y) {
+  return atan2(point2_y - point1_y, point2_x - point1_x);
+}
 
-std::vector<octomap::point3d> AstarPlanner::prepareOutputPath(const std::vector<octomap::OcTreeKey> &keys, octomap::OcTree &tree) {
+std::vector<Eigen::Vector4d> AstarPlanner::addHeadingToPath(const std::vector<octomap::point3d> &processed) {
+  std::vector<Eigen::Vector4d> waypoints;
+  size_t size = processed.size() - 1;
+  Eigen::Vector4d waypoint;
+  for (int i = 0; i < size; i++) {
+    float point1_x = processed[i].x();
+    float point1_y = processed[i].y();
+
+    float point2_x = processed[i + 1].x();
+    float point2_y = processed[i + 1].y();
+
+        waypoint.x()  = point1_x;
+        waypoint.y()  = point1_y;
+        waypoint.z()  = processed[i].z();
+        waypoint.w()  = getAngleTwo2DPoint(point1_x, point1_y, point2_x, point2_y);
+
+        waypoints.push_back(waypoint);
+  }
+  waypoint.x()  = processed[size].x();
+  waypoint.y() = processed[size].y();
+  waypoint.z() = processed[size].z();
+
+  waypoints.push_back(waypoint);
+
+  return waypoints;
+}
+/* prepareOutputPath() //{ */
+std::vector<Eigen::Vector4d>  AstarPlanner::prepareOutputPath(const std::vector<octomap::OcTreeKey> &keys,
+                                                              octomap::OcTree &tree) {
 
   auto waypoints = keysToCoords(keys, tree);
 
@@ -599,7 +637,7 @@ std::vector<octomap::point3d> AstarPlanner::prepareOutputPath(const std::vector<
     bv->addRay(mrs_lib::geometry::Ray::twopointCast(w0, w1), 0.4, 0.4, 1.0, 1);
   }
 
-  return processed;
+  return addHeadingToPath(processed);
 }
 //}
 
@@ -609,10 +647,10 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
 
   for (auto it = tree.begin(); it != tree.end(); it++) {
 
-    Eigen::Vector3d           center(it.getX(), it.getY(), it.getZ());
-    double                    cube_scale  = tree.getResolution() * std::pow(2, tree.getTreeDepth() - it.getDepth());
-    Eigen::Vector3d           size        = Eigen::Vector3d(1, 1, 1) * cube_scale;
-    Eigen::Quaterniond        orientation = Eigen::Quaterniond::Identity();
+    Eigen::Vector3d center(it.getX(), it.getY(), it.getZ());
+    double cube_scale = tree.getResolution() * std::pow(2, tree.getTreeDepth() - it.getDepth());
+    Eigen::Vector3d size = Eigen::Vector3d(1, 1, 1) * cube_scale;
+    Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity();
     mrs_lib::geometry::Cuboid c(center, size, orientation);
 
     if (it->getValue() == TreeValue::OCCUPIED) {
@@ -634,10 +672,10 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
 
 void AstarPlanner::visualizeGoal(const octomap::point3d &goal) {
 
-  Eigen::Vector3d           center(goal.x(), goal.y(), goal.z());
-  double                    cube_scale  = 0.5;
-  Eigen::Vector3d           size        = Eigen::Vector3d(1, 1, 1) * cube_scale;
-  Eigen::Quaterniond        orientation = Eigen::Quaterniond::Identity();
+  Eigen::Vector3d center(goal.x(), goal.y(), goal.z());
+  double cube_scale = 0.5;
+  Eigen::Vector3d size = Eigen::Vector3d(1, 1, 1) * cube_scale;
+  Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity();
   mrs_lib::geometry::Cuboid c(center, size, orientation);
 
   bv->addCuboid(c, 1.0, 0.0, 1.0, 1.0, true);
@@ -668,17 +706,17 @@ void AstarPlanner::visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupi
 
 /* visualizeExpansions() //{ */
 
-void AstarPlanner::visualizeExpansions(const std::unordered_set<Node, HashFunction> &open, const std::unordered_set<Node, HashFunction> &closed,
-                                       octomap::OcTree &tree) {
+void AstarPlanner::visualizeExpansions(const std::unordered_set<Node, HashFunction> &open,
+                                       const std::unordered_set<Node, HashFunction> &closed, octomap::OcTree &tree) {
 
   for (auto &n : open) {
-    auto            coord = tree.keyToCoord(n.key);
+    auto coord = tree.keyToCoord(n.key);
     Eigen::Vector3d p(coord.x(), coord.y(), coord.z());
     bv->addPoint(p, 0.2, 1.0, 0.2, 0.3);
   }
 
   for (auto &n : closed) {
-    auto            coord = tree.keyToCoord(n.key);
+    auto coord = tree.keyToCoord(n.key);
     Eigen::Vector3d p(coord.x(), coord.y(), coord.z());
     bv->addPoint(p, 1.0, 0.2, 0.2, 0.3);
   }
@@ -688,7 +726,8 @@ void AstarPlanner::visualizeExpansions(const std::unordered_set<Node, HashFuncti
 
 /* generateTemporaryGoal() //{ */
 
-octomap::point3d AstarPlanner::generateTemporaryGoal(const octomap::point3d &start, const octomap::point3d &goal, octomap::OcTree &tree) {
+octomap::point3d AstarPlanner::generateTemporaryGoal(const octomap::point3d &start, const octomap::point3d &goal,
+                                                     octomap::OcTree &tree) {
 
   octomap::point3d temp_goal;
 
@@ -739,4 +778,4 @@ octomap::point3d AstarPlanner::generateTemporaryGoal(const octomap::point3d &sta
 
 //}
 
-}  // namespace pathfinder
+} // namespace pathfinder
