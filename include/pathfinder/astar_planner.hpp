@@ -71,7 +71,7 @@ private:
   std::shared_ptr<mrs_lib::BatchVisualizer> bv;
 
 public:
-  std::pair<std::vector<Eigen::Vector4d> , bool> findPath(const octomap::point3d &start, const octomap::point3d &goal,
+  std::pair<std::vector<Eigen::Vector4d> , bool> findPath(const  Eigen::Vector4d &start_coord_4d, const octomap::point3d &goal,
                                                           std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout);
 
 private:
@@ -114,6 +114,10 @@ private:
   void visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupied);
 
   void visualizeGoal(const octomap::point3d &goal);
+
+  std::vector<Eigen::Vector4d> lookAroundGenerator(const  Eigen::Vector4d &start_coord_4d );
+
+  float getAngleTwo2DPoint(float point1_x, float point1_y, float point2_x, float point2_y);
 
   void visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupied);
 

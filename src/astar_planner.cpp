@@ -64,13 +64,34 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
 }
 //}
 
+std::vector<Eigen::Vector4d> AstarPlanner::lookAroundGenerator(const  Eigen::Vector4d &start_coord_4d ) {
+  ROS_INFO("[Astar]: Look around");
+  std::vector<Eigen::Vector4d> waypoints;
+  Eigen::Vector4d rotate_4d;
+  rotate_4d.x() = start_coord_4d.x();
+  rotate_4d.y() = start_coord_4d.y();
+  rotate_4d.w() = start_coord_4d.w();
+
+  const int PI_STEP = 3;
+
+  for (int i = 0; i < PI_STEP * 2; i++) {
+    rotate_4d.z() = (start_coord_4d.z() + ((i % 2 == 0) ? 0.5 : -0.5));   // the z axis moves for rotation
+    rotate_4d.w() += M_PI / PI_STEP;
+    //std::cout << "  angle set: " << rotate_4d.w()/M_PI*180 << std::endl;
+    waypoints.push_back(rotate_4d);
+  }
+  return waypoints;
+}
+
 /* findPath main //{ */
 
-std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const octomap::point3d &start_coord,
-                                                                      const octomap::point3d &goal_coord,
-                                                                      std::shared_ptr<octomap::OcTree> mapping_tree,
-                                                                      const double timeout) {
+std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const  Eigen::Vector4d &start_coord_4d,
+                                                                     const octomap::point3d &goal_coord,
+                                                                     std::shared_ptr<octomap::OcTree> mapping_tree,
+                                                                     const double timeout) {
 
+
+  const octomap::point3d start_coord(start_coord_4d.x(),start_coord_4d.y(),start_coord_4d.z());                                                                   
   ROS_INFO("[Astar]: Astar: user goal [%.2f, %.2f, %.2f]", goal_coord.x(), goal_coord.y(), goal_coord.z());
 
   auto time_start = ros::Time::now();
@@ -84,7 +105,7 @@ std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const octom
 
   if (!tree_with_tunnel) {
     ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a plannig tree");
-    return {std::vector<Eigen::Vector4d>(), false};
+    return {lookAroundGenerator(start_coord_4d), false};
   }
 
   auto tree = tree_with_tunnel.value().first;
@@ -139,8 +160,7 @@ std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const octom
     visualizeGoal(goal_coord);
     visualizeExpansions(open, closed, tree);
     bv->publish();
-
-    return {std::vector<Eigen::Vector4d>(), false};
+    return {lookAroundGenerator(start_coord_4d), false};
   }
 
   ROS_INFO_STREAM("[Astar]: Planning from: " << planning_start.x() << ", " << planning_start.y() << ", "
@@ -274,7 +294,7 @@ std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const octom
 
   ROS_WARN("[Astar]: PATH DOES NOT EXIST!");
 
-  return {std::vector<Eigen::Vector4d>(), false};
+  return {lookAroundGenerator(start_coord_4d), false};
 }
 //}
 
@@ -586,14 +606,15 @@ std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<oc
 }
 //}
 
-float getAngleTwo2DPoint(float point1_x, float point1_y, float point2_x, float point2_y) {
+float AstarPlanner::getAngleTwo2DPoint(float point1_x, float point1_y, float point2_x, float point2_y) {
   return atan2(point2_y - point1_y, point2_x - point1_x);
 }
 
 std::vector<Eigen::Vector4d> AstarPlanner::addHeadingToPath(const std::vector<octomap::point3d> &processed) {
   std::vector<Eigen::Vector4d> waypoints;
-  size_t size = processed.size() - 1;
+
   Eigen::Vector4d waypoint;
+  size_t size = processed.size() - 1;
   for (int i = 0; i < size; i++) {
     float point1_x = processed[i].x();
     float point1_y = processed[i].y();
@@ -601,24 +622,23 @@ std::vector<Eigen::Vector4d> AstarPlanner::addHeadingToPath(const std::vector<oc
     float point2_x = processed[i + 1].x();
     float point2_y = processed[i + 1].y();
 
-        waypoint.x()  = point1_x;
-        waypoint.y()  = point1_y;
-        waypoint.z()  = processed[i].z();
-        waypoint.w()  = getAngleTwo2DPoint(point1_x, point1_y, point2_x, point2_y);
+    waypoint.x() = point1_x;
+    waypoint.y() = point1_y;
+    waypoint.z() = processed[i].z();
+    waypoint.w() = getAngleTwo2DPoint(point1_x, point1_y, point2_x, point2_y);
 
-        waypoints.push_back(waypoint);
+    waypoints.push_back(waypoint);
   }
-  waypoint.x()  = processed[size].x();
+  waypoint.x() = processed[size].x();
   waypoint.y() = processed[size].y();
   waypoint.z() = processed[size].z();
-
   waypoints.push_back(waypoint);
 
   return waypoints;
 }
 /* prepareOutputPath() //{ */
-std::vector<Eigen::Vector4d>  AstarPlanner::prepareOutputPath(const std::vector<octomap::OcTreeKey> &keys,
-                                                              octomap::OcTree &tree) {
+std::vector<Eigen::Vector4d> AstarPlanner::prepareOutputPath(const std::vector<octomap::OcTreeKey> &keys,
+                                                             octomap::OcTree &tree) {
 
   auto waypoints = keysToCoords(keys, tree);
 
