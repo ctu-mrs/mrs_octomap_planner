@@ -64,7 +64,7 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
 }
 //}
 
-std::vector<Eigen::Vector4d> AstarPlanner::lookAroundGenerator(const  Eigen::Vector4d &start_coord_4d ) {
+std::vector<Eigen::Vector4d> AstarPlanner::lookAroundGenerator(const Eigen::Vector4d &start_coord_4d) {
   ROS_INFO("[Astar]: Look around");
   std::vector<Eigen::Vector4d> waypoints;
   Eigen::Vector4d rotate_4d;
@@ -72,12 +72,9 @@ std::vector<Eigen::Vector4d> AstarPlanner::lookAroundGenerator(const  Eigen::Vec
   rotate_4d.y() = start_coord_4d.y();
   rotate_4d.w() = start_coord_4d.w();
 
-  const int PI_STEP = 3;
-
-  for (int i = 0; i < PI_STEP * 2; i++) {
-    rotate_4d.z() = (start_coord_4d.z() + ((i % 2 == 0) ? 0.5 : -0.5));   // the z axis moves for rotation
-    rotate_4d.w() += M_PI / PI_STEP;
-    //std::cout << "  angle set: " << rotate_4d.w()/M_PI*180 << std::endl;
+  for (int i = 0; i < 4; i++) {
+    rotate_4d.z() = (start_coord_4d.z() + ((i % 2 == 0) ? 0.5 : -0.5)); // the z axis moves for rotation
+    rotate_4d.w() += M_PI / 2;
     waypoints.push_back(rotate_4d);
   }
   return waypoints;
@@ -85,13 +82,12 @@ std::vector<Eigen::Vector4d> AstarPlanner::lookAroundGenerator(const  Eigen::Vec
 
 /* findPath main //{ */
 
-std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const  Eigen::Vector4d &start_coord_4d,
+std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const Eigen::Vector4d &start_coord_4d,
                                                                      const octomap::point3d &goal_coord,
                                                                      std::shared_ptr<octomap::OcTree> mapping_tree,
                                                                      const double timeout) {
 
-
-  const octomap::point3d start_coord(start_coord_4d.x(),start_coord_4d.y(),start_coord_4d.z());                                                                   
+  const octomap::point3d start_coord(start_coord_4d.x(), start_coord_4d.y(), start_coord_4d.z());
   ROS_INFO("[Astar]: Astar: user goal [%.2f, %.2f, %.2f]", goal_coord.x(), goal_coord.y(), goal_coord.z());
 
   auto time_start = ros::Time::now();

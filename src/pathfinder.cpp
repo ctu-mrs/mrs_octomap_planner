@@ -109,6 +109,8 @@ private:
   std::shared_ptr<mrs_lib::BatchVisualizer> bv_planner_;
   bool bv_planner_frame_set_ = false;
 
+  bool start_rotate = false;
+
   mrs_lib::BatchVisualizer bv_processed_;
   std::mutex mutex_bv_processed_;
 
@@ -192,10 +194,13 @@ private:
   // routines
   void setReplanningPoint(const mrs_msgs::TrajectoryReference &traj);
 
+  std::pair<std::vector<Eigen::Vector4d>, bool> rotateToAngle(Eigen::Vector4d &plan_from, double angle);
+
   std::vector<double> estimateSegmentTimes(const std::vector<Eigen::Vector4d> &vertices, const bool use_heading);
 
   /**
-   * @brief returns planning initial condition for a given future time based on the MPC prediction horizon
+   * @brief returns planning initial condition for a given future time based on the MPC
+   * prediction horizon
    *
    * @param time
    *
@@ -506,6 +511,13 @@ void Pathfinder::timeoutControlManagerDiag(const std::string &topic, const ros::
 
 //}
 
+double toHeadingRad(double rad) {
+  while (rad > M_PI || rad < -M_PI) {
+    rad -= copysign(2 * M_PI, rad);
+  }
+  return rad;
+}
+
 /* callbackGoto() //{ */
 
 bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request &req, mrs_msgs::Vec4::Response &res) {
@@ -540,7 +552,8 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request &req, mrs
     reference.reference.position.x = req.goal[0];
     reference.reference.position.y = req.goal[1];
     reference.reference.position.z = req.goal[2];
-    reference.reference.heading = req.goal[3];
+
+    reference.reference.heading = toHeadingRad(req.goal[3]);
 
     auto result = transformer_.transformSingle(octree_frame_, reference);
 
@@ -562,6 +575,7 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request &req, mrs
     }
   }
 
+  start_rotate = true;
   changeState(STATE_PLANNING);
 
   {
@@ -673,7 +687,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
 
   if (!got_octomap || !got_position_cmd || !got_mpc_prediction || !got_control_manager_diag || !got_constraints) {
     ROS_INFO_THROTTLE(1.0,
-                      "[Pathfinder]: waiting for data: octomap = %s, position cmd = %s, MPC prediction = %s, "
+                      "[Pathfinder]: waiting for data: octomap = %s, position cmd = %s, "
+                      "MPC prediction = %s, "
                       "ControlManager diag = %s, constraints = %s",
                       got_octomap ? "TRUE" : "FALSE", got_position_cmd ? "TRUE" : "FALSE",
                       got_mpc_prediction ? "TRUE" : "FALSE", got_control_manager_diag ? "TRUE" : "FALSE",
@@ -790,56 +805,69 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
     plan_from.z() = initial_condition.value().reference.position.z;
     plan_from.w() = initial_condition.value().reference.heading;
 
-    pathfinder::AstarPlanner planner =
-        pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_,
-                                 _distance_penalty_, _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_,
-                                 _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
+    std::pair<std::vector<Eigen::Vector4d>, bool> waypoints;
+    if (start_rotate) {
+      if (plan_from.w() < user_goal.heading + 0.1 && plan_from.w() > user_goal.heading - 0.1) {
 
-    std::pair<std::vector<Eigen::Vector4d>, bool> waypoints =
-        planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
-
-    // path is complete
-    Eigen::Vector4d user_goal_4d;
-    user_goal_4d.x() = user_goal_octpoint.x();
-    user_goal_4d.y() = user_goal_octpoint.y();
-    user_goal_4d.z() = user_goal_octpoint.z();
-
-    if (waypoints.second) {
-      replanning_counter_ = 0;
-      waypoints.first.push_back(user_goal_4d);
-
-    } else {
-      if (waypoints.first.size() < 2) {
-        ROS_WARN("[Pathfinder]: path not found");
-        replanning_counter_++;
+        start_rotate = false;
+        changeState(STATE_PLANNING);
         break;
+      } else {
+        waypoints = rotateToAngle(plan_from, user_goal.heading);
       }
+    } else {
 
-      else {
+      pathfinder::AstarPlanner planner =
+          pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_,
+                                   _distance_penalty_, _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_,
+                                   _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
-        double front_x = waypoints.first.front().x();
-        double front_y = waypoints.first.front().y();
-        double front_z = waypoints.first.front().z();
+      waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
 
-        double back_x = waypoints.first.back().x();
-        double back_y = waypoints.first.back().y();
-        double back_z = waypoints.first.back().z();
+      // path is complete
+      Eigen::Vector4d user_goal_4d;
+      user_goal_4d.x() = user_goal_octpoint.x();
+      user_goal_4d.y() = user_goal_octpoint.y();
+      user_goal_4d.z() = user_goal_octpoint.z();
 
-        double path_start_end_dist =
-            sqrt(pow(front_x - back_x, 2) + pow(front_y - back_y, 2) + pow(front_z - back_z, 2));
+      if (waypoints.second) {
+        replanning_counter_ = 0;
+        waypoints.first.push_back(user_goal_4d);
 
-        if (path_start_end_dist < 0.1) {
-          ROS_WARN("[Pathfinder]: path too short");
-
+      } else {
+        if (waypoints.first.size() < 2) {
+          ROS_WARN("[Pathfinder]: path not found");
           replanning_counter_++;
-          changeState(STATE_PLANNING);
           break;
-        } else if (front_x == back_x && front_y == back_y) // rotation and stack on greedy node
-        {
-          ROS_WARN("[Pathfinder]: path not found -> ROTATE");
-          replanning_counter_++;
-        } else {
-          replanning_counter_ = 0;
+        }
+
+        else {
+
+          double front_x = waypoints.first.front().x();
+          double front_y = waypoints.first.front().y();
+          double front_z = waypoints.first.front().z();
+
+          double back_x = waypoints.first.back().x();
+          double back_y = waypoints.first.back().y();
+          double back_z = waypoints.first.back().z();
+
+          double path_start_end_dist =
+              sqrt(pow(front_x - back_x, 2) + pow(front_y - back_y, 2) + pow(front_z - back_z, 2));
+
+          if (path_start_end_dist < 0.1) {
+            if (front_x == back_x && front_y == back_y) // rotation and stack on greedy node
+            {
+              ROS_WARN("[Pathfinder]: path not found -> ROTATE");
+              replanning_counter_++;
+            } else {
+              ROS_WARN("[Pathfinder]: path too short");
+              replanning_counter_++;
+              changeState(STATE_PLANNING);
+              break;
+            }
+          } else {
+            replanning_counter_ = 0;
+          }
         }
       }
     }
@@ -1002,8 +1030,20 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
 
 //}
 
-/* timerFutureCheck() //{ */
+std::pair<std::vector<Eigen::Vector4d>, bool> Pathfinder::rotateToAngle(Eigen::Vector4d &plan_from, double angle) {
+  std::vector<Eigen::Vector4d> waypoints;
 
+  Eigen::Vector4d tmp(plan_from.x(), plan_from.y(), plan_from.z(), angle);
+  for (int i = 0; i < 2; i++) {
+
+    tmp.z() = (plan_from.z() + ((i % 2 == 0) ? 0.2 : -0.2));
+    waypoints.push_back(tmp);
+  }
+
+  return {waypoints, false};
+}
+
+/* timerFutureCheck() //{ */
 void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent &evt) {
 
   if (!is_initialized_) {
@@ -1053,9 +1093,8 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent &evt) {
     auto ret = transformer_.getTransform(prediction->header.frame_id, octree_frame, prediction->header.stamp);
 
     if (!ret) {
-      ROS_ERROR_THROTTLE(
-          1.0,
-          "[Pathfinder]: could not transform position cmd to the map frame! can not check for potential collisions!");
+      ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not transform position cmd to the map "
+                              "frame! can not check for potential collisions!");
       return;
     }
 
@@ -1080,9 +1119,8 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent &evt) {
       auto transformed_pose = transformer_.transform(tf, pose);
 
       if (!transformed_pose) {
-        ROS_ERROR_THROTTLE(
-            1.0,
-            "[Pathfinder]: could not transform position cmd to the map frame! can not check for potential collisions!");
+        ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not transform position cmd to the "
+                                "map frame! can not check for potential collisions!");
         return;
       }
 
@@ -1113,9 +1151,10 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent &evt) {
 
         if (!ray_is_cool) {
 
-          ROS_ERROR_THROTTLE(
-              0.1, "[Pathfinder]: future check found collision with prediction horizon between %d and %d, hovering!", i,
-              i + 1);
+          ROS_ERROR_THROTTLE(0.1,
+                             "[Pathfinder]: future check found collision with prediction "
+                             "horizon between %d and %d, hovering!",
+                             i, i + 1);
 
           // shorten the trajectory
           for (int j = int(trajectory.points.size()) - 1; j >= floor(i / 2.0); j--) {
@@ -1242,8 +1281,8 @@ std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const 
   const mrs_msgs::MpcPredictionFullStateConstPtr prediction_full_state = sh_mpc_prediction_.getMsg();
 
   if ((des_time - prediction_full_state->stamps.back()).toSec() > 0) {
-    ROS_ERROR_THROTTLE(1.0,
-                       "[Pathfinder]: could not obtain initial condition, the desired time is too far in the future");
+    ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition, the "
+                            "desired time is too far in the future");
     return {};
   }
 
@@ -1442,13 +1481,14 @@ std::vector<double> Pathfinder::estimateSegmentTimes(const std::vector<Eigen::Ve
       max_velocity_time = ((distance - (2 * (v_max * v_max) / a_max)) / v_max);
     }
 
-    /* double t = max_velocity_time + acceleration_time_1 + acceleration_time_2 + jerk_time_1 + jerk_time_2; */
+    /* double t = max_velocity_time + acceleration_time_1 + acceleration_time_2 +
+     * jerk_time_1 + jerk_time_2; */
     double t = max_velocity_time + acceleration_time_1 + acceleration_time_2;
 
-    /* printf("segment %d, [%.2f %.2f %.2f] - > [%.2f %.2f %.2f] = %.2f\n", i, start(0), start(1), start(2), end(0),
-     * end(1), end(2), distance); */
-    /* printf("segment %d time %.2f, distance %.2f, %.2f, %.2f, %.2f, vmax: %.2f, amax: %.2f, jmax: %.2f\n", i, t,
-     * distance, max_velocity_time, */
+    /* printf("segment %d, [%.2f %.2f %.2f] - > [%.2f %.2f %.2f] = %.2f\n", i, start(0),
+     * start(1), start(2), end(0), end(1), end(2), distance); */
+    /* printf("segment %d time %.2f, distance %.2f, %.2f, %.2f, %.2f, vmax: %.2f, amax:
+     * %.2f, jmax: %.2f\n", i, t, distance, max_velocity_time, */
     /*        acceleration_time_1, acceleration_time_2, v_max, a_max, j_max); */
 
     if (t < 0.01) {
