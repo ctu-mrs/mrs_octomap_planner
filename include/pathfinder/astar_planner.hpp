@@ -115,8 +115,6 @@ private:
 
   void visualizeGoal(const octomap::point3d &goal);
 
-  std::vector<Eigen::Vector4d> lookAroundGenerator(const  Eigen::Vector4d &start_coord_4d );
-
   float getAngleTwo2DPoint(float point1_x, float point1_y, float point2_x, float point2_y);
 
   void visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupied);

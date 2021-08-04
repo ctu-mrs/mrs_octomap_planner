@@ -64,30 +64,13 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
 }
 //}
 
-std::vector<Eigen::Vector4d> AstarPlanner::lookAroundGenerator(const Eigen::Vector4d &start_coord_4d) {
-  ROS_INFO("[Astar]: Look around");
-  std::vector<Eigen::Vector4d> waypoints;
-  Eigen::Vector4d rotate_4d;
-  rotate_4d.x() = start_coord_4d.x();
-  rotate_4d.y() = start_coord_4d.y();
-  rotate_4d.w() = start_coord_4d.w();
-
-  for (int i = 0; i < 4; i++) {
-    rotate_4d.z() = (start_coord_4d.z() + ((i % 2 == 0) ? 0.5 : -0.5)); // the z axis moves for rotation
-    rotate_4d.w() += M_PI / 2;
-    waypoints.push_back(rotate_4d);
-  }
-  return waypoints;
-}
-
-/* findPath main //{ */
-
 std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const Eigen::Vector4d &start_coord_4d,
                                                                      const octomap::point3d &goal_coord,
                                                                      std::shared_ptr<octomap::OcTree> mapping_tree,
                                                                      const double timeout) {
 
   const octomap::point3d start_coord(start_coord_4d.x(), start_coord_4d.y(), start_coord_4d.z());
+
   ROS_INFO("[Astar]: Astar: user goal [%.2f, %.2f, %.2f]", goal_coord.x(), goal_coord.y(), goal_coord.z());
 
   auto time_start = ros::Time::now();
@@ -101,7 +84,7 @@ std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const Eigen
 
   if (!tree_with_tunnel) {
     ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a plannig tree");
-    return {lookAroundGenerator(start_coord_4d), false};
+    return {std::vector<Eigen::Vector4d>(), false};
   }
 
   auto tree = tree_with_tunnel.value().first;
@@ -156,7 +139,8 @@ std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const Eigen
     visualizeGoal(goal_coord);
     visualizeExpansions(open, closed, tree);
     bv->publish();
-    return {lookAroundGenerator(start_coord_4d), false};
+
+    return {std::vector<Eigen::Vector4d>(), false};
   }
 
   ROS_INFO_STREAM("[Astar]: Planning from: " << planning_start.x() << ", " << planning_start.y() << ", "
@@ -290,8 +274,9 @@ std::pair<std::vector<Eigen::Vector4d>, bool> AstarPlanner::findPath(const Eigen
 
   ROS_WARN("[Astar]: PATH DOES NOT EXIST!");
 
-  return {lookAroundGenerator(start_coord_4d), false};
+  return {std::vector<Eigen::Vector4d>(), false};
 }
+
 //}
 
 /* getNeighborhood() //{ */

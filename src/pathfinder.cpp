@@ -33,6 +33,7 @@
 #include <mrs_msgs/MpcPredictionFullState.h>
 #include <mrs_msgs/PathfinderDiagnostics.h>
 #include <mrs_msgs/PositionCommand.h>
+#include <mrs_msgs/ReferenceStamped.h>
 #include <mrs_msgs/ReferenceStampedSrv.h>
 #include <mrs_msgs/TrajectoryReference.h>
 #include <mrs_msgs/TrajectoryReferenceSrv.h>
@@ -91,6 +92,7 @@ private:
 
   std::shared_ptr<octomap::OcTree> octree_;
   std::string octree_frame_;
+  std::stringstream reference_frame;
   std::mutex mutex_octree_;
 
   // visualizer params
@@ -110,6 +112,10 @@ private:
   bool bv_planner_frame_set_ = false;
 
   bool start_rotate = false;
+  bool rotate = false;
+  double rotate_from;
+  double rotate_to;
+  Eigen::Vector4d drone_position;
 
   mrs_lib::BatchVisualizer bv_processed_;
   std::mutex mutex_bv_processed_;
@@ -123,6 +129,7 @@ private:
 
   // publishers
   ros::Publisher pub_diagnostics_;
+  ros::Publisher mpc_reference_publisher;
 
   // subscriber callbacks
   void callbackPositionCmd(mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand> &wrp);
@@ -193,11 +200,15 @@ private:
 
   // routines
   void setReplanningPoint(const mrs_msgs::TrajectoryReference &traj);
-
-  std::pair<std::vector<Eigen::Vector4d>, bool> rotateToAngle(Eigen::Vector4d &plan_from, double angle);
+  // rotating
+  void rotateToAngle(Eigen::Vector4d &plan_from, double angle);
+  bool checkAngle(double to, double from);
+  void startRotate();
+  void checkRotate();
 
   std::vector<double> estimateSegmentTimes(const std::vector<Eigen::Vector4d> &vertices, const bool use_heading);
 
+  std::pair<std::vector<Eigen::Vector4d>, bool> waypoints;
   /**
    * @brief returns planning initial condition for a given future time based on the MPC
    * prediction horizon
@@ -250,6 +261,8 @@ void Pathfinder::onInit() {
     ros::shutdown();
   }
 
+  reference_frame << _uav_name_ << "/gps_origin";
+
   // | ---------------------- state machine --------------------- |
 
   state_ = STATE_IDLE;
@@ -257,6 +270,7 @@ void Pathfinder::onInit() {
   // | ----------------------- publishers ----------------------- |
 
   pub_diagnostics_ = nh_.advertise<mrs_msgs::PathfinderDiagnostics>("diagnostics_out", 1);
+  mpc_reference_publisher = nh_.advertise<mrs_msgs::ReferenceStamped>("reference_point_out", 1);
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -338,6 +352,9 @@ void Pathfinder::callbackPositionCmd(mrs_lib::SubscribeHandler<mrs_msgs::Positio
   if (!is_initialized_) {
     return;
   }
+  mrs_msgs::PositionCommandConstPtr positionPtr = wrp.getMsg();
+  drone_position =
+      Eigen::Vector4d(positionPtr->position.x, positionPtr->position.y, positionPtr->position.z, positionPtr->heading);
 
   ROS_INFO_ONCE("[Pathfinder]: getting position cmd");
 }
@@ -576,6 +593,8 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request &req, mrs
   }
 
   start_rotate = true;
+  replanning_counter_ = 0;
+  rotate = false;
   changeState(STATE_PLANNING);
 
   {
@@ -724,6 +743,9 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
     diagnostics_.desired_reference.z = user_goal.position.z;
   }
 
+  // ROS_WARN("*/*/*/*/**/*//*/ :  %lf %lf %lf %lf", drone_position.x(), drone_position.y(), drone_position.z(),
+  // drone_position.w());
+
   switch (state_) {
 
     /* STATE_IDLE //{ */
@@ -780,11 +802,11 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
       time_for_planning = _timeout_threshold_ + pow(1.5, float(replanning_counter_));
     }
 
-    ROS_INFO("[Pathfinder]: planning timeout %.2f s", time_for_planning);
+    // ROS_INFO("[Pathfinder]: planning timeout %.2f s", time_for_planning);
 
     ros::Time init_cond_time = ros::Time::now() + ros::Duration(time_for_planning + _time_for_trajectory_generator_);
 
-    ROS_INFO("[Pathfinder]: init cond time %.2f s", init_cond_time.toSec());
+    //ROS_INFO("[Pathfinder]: init cond time %.2f s", init_cond_time.toSec());
 
     auto initial_condition = getInitialCondition(init_cond_time);
 
@@ -797,7 +819,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
       break;
     }
 
-    ROS_INFO("[Pathfinder]: init cond time stamp %.2f", initial_condition.value().header.stamp.toSec());
+    //ROS_INFO("[Pathfinder]: init cond time stamp %.2f", initial_condition.value().header.stamp.toSec());
 
     Eigen::Vector4d plan_from;
     plan_from.x() = initial_condition.value().reference.position.x;
@@ -805,69 +827,67 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
     plan_from.z() = initial_condition.value().reference.position.z;
     plan_from.w() = initial_condition.value().reference.heading;
 
-    std::pair<std::vector<Eigen::Vector4d>, bool> waypoints;
     if (start_rotate) {
-      if (plan_from.w() < user_goal.heading + 0.1 && plan_from.w() > user_goal.heading - 0.1) {
+      if (checkAngle(drone_position.w(), user_goal.heading)) {
 
         start_rotate = false;
-        changeState(STATE_PLANNING);
         break;
       } else {
-        waypoints = rotateToAngle(plan_from, user_goal.heading);
+        rotateToAngle(drone_position, user_goal.heading);
+        break;
       }
-    } else {
-
+    }
+    if (!rotate) {
       pathfinder::AstarPlanner planner =
           pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_,
                                    _distance_penalty_, _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_,
                                    _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
       waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
+    } else {
+      checkRotate();
+      break;
+    }
+    // path is complete
+    Eigen::Vector4d user_goal_4d;
+    user_goal_4d.x() = user_goal_octpoint.x();
+    user_goal_4d.y() = user_goal_octpoint.y();
+    user_goal_4d.z() = user_goal_octpoint.z();
+    user_goal_4d.z() = 0;
 
-      // path is complete
-      Eigen::Vector4d user_goal_4d;
-      user_goal_4d.x() = user_goal_octpoint.x();
-      user_goal_4d.y() = user_goal_octpoint.y();
-      user_goal_4d.z() = user_goal_octpoint.z();
+    if (waypoints.second) {
+      replanning_counter_ = 0;
+      waypoints.first.push_back(user_goal_4d);
 
-      if (waypoints.second) {
-        replanning_counter_ = 0;
-        waypoints.first.push_back(user_goal_4d);
+    } else {
+      if (waypoints.first.size() < 2) {
 
+        startRotate();
+        replanning_counter_++;
+        break;
       } else {
-        if (waypoints.first.size() < 2) {
-          ROS_WARN("[Pathfinder]: path not found");
+        rotate = false;
+
+        double front_x = waypoints.first.front().x();
+        double front_y = waypoints.first.front().y();
+        double front_z = waypoints.first.front().z();
+
+        double back_x = waypoints.first.back().x();
+        double back_y = waypoints.first.back().y();
+        double back_z = waypoints.first.back().z();
+
+        double path_start_end_dist =
+            sqrt(pow(front_x - back_x, 2) + pow(front_y - back_y, 2) + pow(front_z - back_z, 2));
+
+        if (path_start_end_dist < 0.1) {
+
+          ROS_WARN("[Pathfinder]: path too short");
+
           replanning_counter_++;
+
+          changeState(STATE_PLANNING);
+
           break;
-        }
-
-        else {
-
-          double front_x = waypoints.first.front().x();
-          double front_y = waypoints.first.front().y();
-          double front_z = waypoints.first.front().z();
-
-          double back_x = waypoints.first.back().x();
-          double back_y = waypoints.first.back().y();
-          double back_z = waypoints.first.back().z();
-
-          double path_start_end_dist =
-              sqrt(pow(front_x - back_x, 2) + pow(front_y - back_y, 2) + pow(front_z - back_z, 2));
-
-          if (path_start_end_dist < 0.1) {
-            if (front_x == back_x && front_y == back_y) // rotation and stack on greedy node
-            {
-              ROS_WARN("[Pathfinder]: path not found -> ROTATE");
-              replanning_counter_++;
-            } else {
-              ROS_WARN("[Pathfinder]: path too short");
-              replanning_counter_++;
-              changeState(STATE_PLANNING);
-              break;
-            }
-          } else {
-            replanning_counter_ = 0;
-          }
         }
       }
     }
@@ -981,6 +1001,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
 
       if (!success) {
         ROS_ERROR("[Pathfinder]: service call for trajectory reference failed");
+        changeState(STATE_IDLE);
         break;
       } else {
         if (!srv_trajectory_reference.response.success) {
@@ -1028,19 +1049,49 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
   }
 }
 
-//}
+void Pathfinder::startRotate() {
+  ROS_WARN("[Pathfinder]: path not found-> Start rotation");
+  rotate_from = toHeadingRad(drone_position.w());
+  rotate_to = toHeadingRad(drone_position.w() + (M_PI_2));
+  rotateToAngle(drone_position, rotate_to);
+  rotate = true;
+}
 
-std::pair<std::vector<Eigen::Vector4d>, bool> Pathfinder::rotateToAngle(Eigen::Vector4d &plan_from, double angle) {
-  std::vector<Eigen::Vector4d> waypoints;
+void Pathfinder::checkRotate() {
 
-  Eigen::Vector4d tmp(plan_from.x(), plan_from.y(), plan_from.z(), angle);
-  for (int i = 0; i < 2; i++) {
-
-    tmp.z() = (plan_from.z() + ((i % 2 == 0) ? 0.2 : -0.2));
-    waypoints.push_back(tmp);
+  if (checkAngle(drone_position.w(), rotate_to)) {
+    if (checkAngle(rotate_from, rotate_to)) {
+      ROS_INFO("End of rotate");
+      rotate = false;
+      changeState(STATE_MOVING);
+}
+    } else {
+      rotate_to = toHeadingRad(rotate_to + (M_PI_2));
+      rotateToAngle(drone_position, rotate_to);
+    }
   }
+  
 
-  return {waypoints, false};
+//}
+bool Pathfinder::checkAngle(double rotate_from, double rotate_to) {
+  if (rotate_from < rotate_to + 0.1 && rotate_from > rotate_to - 0.1) {
+    return true;
+  }
+  return false;
+}
+
+void Pathfinder::rotateToAngle(Eigen::Vector4d &plan_from, double angle) {
+
+  mrs_msgs::ReferenceStamped reference;
+  reference.header.frame_id = reference_frame.str();
+  reference.header.stamp = ros::Time::now();
+
+  reference.reference.position.x = plan_from.x();
+  reference.reference.position.y = plan_from.y();
+  reference.reference.position.z = plan_from.z();
+  reference.reference.heading = angle;
+
+  mpc_reference_publisher.publish(reference);
 }
 
 /* timerFutureCheck() //{ */
