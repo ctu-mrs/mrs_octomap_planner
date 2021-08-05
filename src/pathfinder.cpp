@@ -1027,19 +1027,21 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
 
       diagnostics_.idle = false;
     }
-    auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_);
+  //  auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_);
 
-    double dist_to_goal = (initial_pos - user_goal_octpoint).norm();
+    octomap::point3d act_pos(drone_position.x(),drone_position.y(),drone_position.z());
+
+    double dist_to_goal = (act_pos  - user_goal_octpoint).norm();
 
     ROS_INFO_THROTTLE(1.0, "[Pathfinder]: dist to goal: %.2f m", dist_to_goal);
 
-    if (dist_to_goal < 2 * _planning_tree_resolution_) {
+    if (dist_to_goal < 2* _planning_tree_resolution_) {
       ROS_INFO("[Pathfinder]: user goal reached");
       changeState(STATE_IDLE);
       break;
     }
-    if ((ros::Time::now() - (time_last_plan_ + ros::Duration(_replan_after_))).toSec() > 0) {
-
+    if ((ros::Time::now() - (time_last_plan_ + ros::Duration(_replan_after_))).toSec() > 0 && !waypoints.second) {
+      
       changeState(STATE_PLANNING);
     }
 
