@@ -51,11 +51,12 @@ namespace pathfinder {
 
 typedef enum {
   STATE_IDLE,
+  STATE_ROTATING,
   STATE_PLANNING,
   STATE_MOVING,
 } State_t;
 
-const std::string _state_names_[] = {"IDLE", "PLANNING", "MOVING"};
+const std::string _state_names_[] = {"IDLE", "ROTATING","PLANNING", "MOVING"};
 
 //}
 
@@ -569,8 +570,8 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request &req, mrs
     reference.reference.position.x = req.goal[0];
     reference.reference.position.y = req.goal[1];
     reference.reference.position.z = req.goal[2];
-
     reference.reference.heading = toHeadingRad(req.goal[3]);
+    rotate_to = reference.reference.heading;
 
     auto result = transformer_.transformSingle(octree_frame_, reference);
 
@@ -595,7 +596,7 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request &req, mrs
   start_rotate = true;
   replanning_counter_ = 0;
   rotate = false;
-  changeState(STATE_PLANNING);
+  changeState(STATE_ROTATING);
 
   {
     std::scoped_lock lock(mutex_bv_input_, mutex_user_goal_);
@@ -743,9 +744,6 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
     diagnostics_.desired_reference.z = user_goal.position.z;
   }
 
-  // ROS_WARN("*/*/*/*/**/*//*/ :  %lf %lf %lf %lf", drone_position.x(), drone_position.y(), drone_position.z(),
-  // drone_position.w());
-
   switch (state_) {
 
     /* STATE_IDLE //{ */
@@ -761,6 +759,23 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
     break;
   }
 
+  //}STATE_ROTATING //{ */
+  case STATE_ROTATING: {
+
+    if (!( rotate || start_rotate)) {
+      startRotate();
+    } else if (checkAngle(drone_position.w(), rotate_to)) {
+      if (start_rotate) {
+        start_rotate = false;
+        ROS_INFO("[Pathfinder]: Start rotation complete ");
+        changeState(STATE_PLANNING);
+      } else {
+        checkRotate();
+      }
+    }
+    rotateToAngle(drone_position, rotate_to);
+    break;
+  }
     //}
 
     /* STATE_PLANNING //{ */
@@ -806,7 +821,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
 
     ros::Time init_cond_time = ros::Time::now() + ros::Duration(time_for_planning + _time_for_trajectory_generator_);
 
-    //ROS_INFO("[Pathfinder]: init cond time %.2f s", init_cond_time.toSec());
+    // ROS_INFO("[Pathfinder]: init cond time %.2f s", init_cond_time.toSec());
 
     auto initial_condition = getInitialCondition(init_cond_time);
 
@@ -819,7 +834,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
       break;
     }
 
-    //ROS_INFO("[Pathfinder]: init cond time stamp %.2f", initial_condition.value().header.stamp.toSec());
+    // ROS_INFO("[Pathfinder]: init cond time stamp %.2f", initial_condition.value().header.stamp.toSec());
 
     Eigen::Vector4d plan_from;
     plan_from.x() = initial_condition.value().reference.position.x;
@@ -827,47 +842,31 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent &evt) {
     plan_from.z() = initial_condition.value().reference.position.z;
     plan_from.w() = initial_condition.value().reference.heading;
 
-    if (start_rotate) {
-      if (checkAngle(drone_position.w(), user_goal.heading)) {
+    pathfinder::AstarPlanner planner =
+        pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_,
+                                 _distance_penalty_, _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_,
+                                 _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
-        start_rotate = false;
-        break;
-      } else {
-        rotateToAngle(drone_position, user_goal.heading);
-        break;
-      }
-    }
-    if (!rotate) {
-      pathfinder::AstarPlanner planner =
-          pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _planning_tree_resolution_,
-                                   _distance_penalty_, _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_,
-                                   _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
+    waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
 
-      waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
-    } else {
-      checkRotate();
-      break;
-    }
     // path is complete
     Eigen::Vector4d user_goal_4d;
     user_goal_4d.x() = user_goal_octpoint.x();
     user_goal_4d.y() = user_goal_octpoint.y();
     user_goal_4d.z() = user_goal_octpoint.z();
-    user_goal_4d.z() = 0;
+    user_goal_4d.w() = user_goal.heading;
 
     if (waypoints.second) {
       replanning_counter_ = 0;
       waypoints.first.push_back(user_goal_4d);
+     
 
     } else {
       if (waypoints.first.size() < 2) {
-
-        startRotate();
-        replanning_counter_++;
+        changeState(STATE_ROTATING);
+       // replanning_counter_++;
         break;
       } else {
-        rotate = false;
-
         double front_x = waypoints.first.front().x();
         double front_y = waypoints.first.front().y();
         double front_z = waypoints.first.front().z();
@@ -1053,24 +1052,19 @@ void Pathfinder::startRotate() {
   ROS_WARN("[Pathfinder]: path not found-> Start rotation");
   rotate_from = toHeadingRad(drone_position.w());
   rotate_to = toHeadingRad(drone_position.w() + (M_PI_2));
-  rotateToAngle(drone_position, rotate_to);
   rotate = true;
 }
 
 void Pathfinder::checkRotate() {
 
-  if (checkAngle(drone_position.w(), rotate_to)) {
-    if (checkAngle(rotate_from, rotate_to)) {
-      ROS_INFO("End of rotate");
-      rotate = false;
-      changeState(STATE_MOVING);
-}
-    } else {
-      rotate_to = toHeadingRad(rotate_to + (M_PI_2));
-      rotateToAngle(drone_position, rotate_to);
-    }
+  if (checkAngle(rotate_from, rotate_to)) {
+    ROS_INFO("[Pathfinder]: End of rotate");
+    changeState(STATE_PLANNING);
+    rotate = false;
+  } else {
+    rotate_to = toHeadingRad(rotate_to + (M_PI_2));
   }
-  
+}
 
 //}
 bool Pathfinder::checkAngle(double rotate_from, double rotate_to) {
