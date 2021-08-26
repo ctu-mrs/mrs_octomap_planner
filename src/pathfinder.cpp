@@ -615,7 +615,7 @@ bool Pathfinder::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSr
 
     } else {
       std::stringstream ss;
-      ss << "could not transform the reference from " << position_cmd->header.frame_id << " to " << octree_frame_;
+      ss << "could not transform the reference from " << req.header.frame_id << " to " << octree_frame_;
 
       ROS_ERROR_STREAM("[Pathfinder]: " << ss.str());
 
