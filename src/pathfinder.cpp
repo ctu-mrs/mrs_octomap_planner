@@ -514,7 +514,7 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs
     std::stringstream ss;
     ss << "not ready to plan, missing data";
 
-    ROS_ERROR_STREAM("[Pathfinder]: " << ss.str());
+    ROS_ERROR_STREAM_THROTTLE(0.5, "[Pathfinder]: " << ss.str());
 
     res.success = false;
     res.message = ss.str();
@@ -587,7 +587,7 @@ bool Pathfinder::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSr
     std::stringstream ss;
     ss << "not ready to plan, missing data";
 
-    ROS_ERROR_STREAM("[Pathfinder]: " << ss.str());
+    ROS_ERROR_STREAM_THROTTLE(0.5, "[Pathfinder]: " << ss.str());
 
     res.success = false;
     res.message = ss.str();
