@@ -97,9 +97,10 @@ private:
 
   DynamicEDTOctomap euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start_coord, double radius);
 
-  std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> createPlanningTree(std::shared_ptr<octomap::OcTree> tree,
-                                                                                              const octomap::point3d &start, double resolution,
-                                                                                              const octomap::point3d &start_coord, double radius);
+  std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> createPlanningTree(std::shared_ptr<octomap::OcTree> tree,
+                                                                                                               const octomap::point3d &start, double resolution,
+                                                                                                               const octomap::point3d &start_coord,
+                                                                                                               double                  radius);
 
   octomap::point3d nearestFreeCoord(const octomap::point3d &p, const octomap::point3d &uav_pos, octomap::OcTree &tree);
 
@@ -116,6 +117,11 @@ private:
   void visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupied);
 
   void visualizeExpansions(const std::unordered_set<Node, HashFunction> &open, const std::unordered_set<Node, HashFunction> &closed, octomap::OcTree &tree);
+
+  octomap::OcTreeNode *touchNode(std::shared_ptr<octomap::OcTree> &octree, const octomap::OcTreeKey &key, unsigned int target_depth = 0);
+
+  octomap::OcTreeNode *touchNodeRecurs(std::shared_ptr<octomap::OcTree> &octree, octomap::OcTreeNode *node, const octomap::OcTreeKey &key, unsigned int depth,
+                                       unsigned int max_depth = 0);
 };
 
 }  // namespace pathfinder

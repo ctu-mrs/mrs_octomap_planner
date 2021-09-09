@@ -86,8 +86,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     return {std::vector<octomap::point3d>(), false};
   }
 
-  auto tree   = tree_with_tunnel.value().first;
-  auto tunnel = tree_with_tunnel.value().second;
+  octomap::OcTree &tree   = *tree_with_tunnel.value().first;
+  auto             tunnel = tree_with_tunnel.value().second;
 
   auto map_goal  = goal_coord;
   auto map_query = mapping_tree->search(goal_coord);
@@ -133,7 +133,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     bv->clearVisuals();
     bv->clearBuffers();
-    /* visualizeTreeCubes(tree, true); */
+    visualizeTreeCubes(tree, true);
     visualizeGoal(goal_coord);
     visualizeExpansions(open, closed, tree);
     bv->publish();
@@ -178,7 +178,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       bv->clearVisuals();
       bv->clearBuffers();
-      /* visualizeTreeCubes(tree, true); */
+      visualizeTreeCubes(tree, true);
       visualizeGoal(goal_coord);
       visualizeExpansions(open, closed, tree);
       bv->publish();
@@ -196,7 +196,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       bv->clearVisuals();
       bv->clearBuffers();
-      /* visualizeTreeCubes(tree, true); */
+      visualizeTreeCubes(tree, true);
       visualizeGoal(goal_coord);
       visualizeExpansions(open, closed, tree);
       bv->publish();
@@ -245,7 +245,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   bv->clearVisuals();
   bv->clearBuffers();
-  /* visualizeTreeCubes(tree, true); */
+  visualizeTreeCubes(tree, true);
   visualizeGoal(goal_coord);
   visualizeExpansions(open, closed, tree);
   bv->publish();
@@ -415,36 +415,84 @@ DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octom
   tree->getMetricMax(x, y, z);
   octomap::point3d metric_max(x, y, z);
 
-  DynamicEDTOctomap edf(euclidean_distance_cutoff, tree.get(), metric_min, metric_max, unknown_is_occupied);
+  DynamicEDTOctomap edf(float(euclidean_distance_cutoff), tree.get(), metric_min, metric_max, unknown_is_occupied);
   edf.update();
 
   return edf;
 }
+
 //}
 
 /* createPlanningTree() //{ */
 
-std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPlanner::createPlanningTree(std::shared_ptr<octomap::OcTree> tree,
-                                                                                                          const octomap::point3d &start, double resolution,
-                                                                                                          const octomap::point3d &orig_coord, double radius) {
+std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> AstarPlanner::createPlanningTree(
+    std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start, double resolution, const octomap::point3d &orig_coord, double radius) {
 
-  auto            edf         = euclideanDistanceTransform(tree, orig_coord, radius);
-  octomap::OcTree binary_tree = octomap::OcTree(resolution);
+  /* resample the incoming map to the desired resolution //{ */
 
-  tree->expand();
+  std::shared_ptr<octomap::OcTree> resampled_tree = std::make_shared<octomap::OcTree>(resolution);
+  resampled_tree->clear();
+  resampled_tree->setResolution(resolution);
+  resampled_tree->setOccupancyThres(tree->getOccupancyThres());
+  resampled_tree->setProbHit(tree->getProbHit());
+  resampled_tree->setProbMiss(tree->getProbMiss());
+  resampled_tree->setClampingThresMax(tree->getClampingThresMax());
+  resampled_tree->setClampingThresMin(tree->getClampingThresMin());
 
-  for (auto it = tree->begin(); it != tree->end(); it++) {
+  double min_x, min_y, min_z;
+  double max_x, max_y, max_z;
+
+  tree->getMetricMin(min_x, min_y, min_z);
+  tree->getMetricMax(max_x, max_y, max_z);
+
+  int x_steps = int((max_x - min_x) / resolution);
+  int y_steps = int((max_y - min_y) / resolution);
+  int z_steps = int((max_z - min_z) / resolution);
+
+  for (int i = 0; i < x_steps; i++) {
+
+    double x = min_x + i * resolution;
+
+    for (int j = 0; j < y_steps; j++) {
+
+      double y = min_y + j * resolution;
+
+      for (int k = 0; k < z_steps; k++) {
+
+        double z = min_z + k * resolution;
+
+        octomap::OcTreeKey key     = tree->coordToKey(x, y, z);
+        octomap::OcTreeKey key_new = resampled_tree->coordToKey(x, y, z);
+
+        octomap::OcTreeNode *node = tree->search(key);
+
+        if (node) {
+          resampled_tree->setNodeValue(key_new, node->getValue());
+        }
+      }
+    }
+  }
+
+  resampled_tree->expand();
+
+  auto edf = euclideanDistanceTransform(resampled_tree, orig_coord, radius);
+
+  //}
+
+  std::shared_ptr<octomap::OcTree> binary_tree = std::make_shared<octomap::OcTree>(resolution);
+
+  for (auto it = resampled_tree->begin(); it != resampled_tree->end(); it++) {
     if (edf.getDistance(it.getCoordinate()) <= safe_obstacle_distance) {
-      binary_tree.setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED);  // obstacle or close to obstacle
+      binary_tree->setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED);  // free and safe
     } else {
-      binary_tree.setNodeValue(it.getCoordinate(), TreeValue::FREE);  // free and safe
+      binary_tree->setNodeValue(it.getCoordinate(), TreeValue::FREE);  // free and safe
     }
   }
 
   std::vector<octomap::point3d> tunnel;
 
   octomap::point3d current_coords    = start;
-  auto             binary_tree_query = binary_tree.search(current_coords);
+  auto             binary_tree_query = binary_tree->search(current_coords);
 
   if (binary_tree_query != NULL && binary_tree_query->getValue() != TreeValue::FREE) {
 
@@ -461,7 +509,7 @@ std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPl
       }
 
       tunnel.push_back(current_coords);
-      binary_tree.setNodeValue(current_coords, TreeValue::FREE);
+      binary_tree->setNodeValue(current_coords, TreeValue::FREE);
 
       float            obstacle_dist;
       octomap::point3d closest_obstacle;
@@ -474,24 +522,24 @@ std::optional<std::pair<octomap::OcTree, std::vector<octomap::point3d>>> AstarPl
         break;
       }
 
-      current_coords += dir_away_from_obstacle.normalized() * float(binary_tree.getResolution());
+      current_coords += dir_away_from_obstacle.normalized() * float(binary_tree->getResolution());
 
       int iter2 = 0;
 
-      while (binary_tree.search(current_coords) == binary_tree_query) {
+      while (binary_tree->search(current_coords) == binary_tree_query) {
 
         if (iter2++ > 100) {
           return {};
         }
 
-        current_coords += dir_away_from_obstacle.normalized() * float(binary_tree.getResolution());
+        current_coords += dir_away_from_obstacle.normalized() * float(binary_tree->getResolution());
       }
 
-      binary_tree_query = binary_tree.search(current_coords);
+      binary_tree_query = binary_tree->search(current_coords);
     }
   }
 
-  std::pair<octomap::OcTree, std::vector<octomap::point3d>> result = {binary_tree, tunnel};
+  std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>> result = {binary_tree, tunnel};
 
   return result;
 }
@@ -517,7 +565,7 @@ octomap::point3d AstarPlanner::nearestFreeCoord(const octomap::point3d &p, const
 
   // no free neighbor -> try a point closer to UAV
   octomap::point3d dir_to_uav;
-  dir_to_uav = (uav_pos - p).normalized() * tree.getResolution();
+  dir_to_uav = (uav_pos - p).normalized() * float(tree.getResolution());
   auto new_p = p + dir_to_uav;
 
   return nearestFreeCoord(p + dir_to_uav, uav_pos, tree);
@@ -540,7 +588,7 @@ std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<oc
 
   for (int i = 1; i < waypoints_size; i++) {
     if (max_waypoint_distance > 0 && distEuclidean(padded[i], padded[i - 1]) > max_waypoint_distance) {
-      auto direction = (padded[i] - padded[i - 1]).normalized() * max_waypoint_distance;
+      auto direction = (padded[i] - padded[i - 1]).normalized() * float(max_waypoint_distance);
       padded.insert(padded.begin() + i, padded[i - 1] + direction);
       waypoints_size++;
     }
@@ -616,14 +664,14 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
     mrs_lib::geometry::Cuboid c(center, size, orientation);
 
     if (it->getValue() == TreeValue::OCCUPIED) {
-      bv->addCuboid(c, 0.1, 0.5, 0.1, 0.2, true);
+      /* bv->addCuboid(c, 0.1, 0.5, 0.1, 0.2, true); */
       /* bv->addCuboid(c, 0, 0, 0, 0.3, false); */
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 0.8, true); */
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 1.0, false); */
     }
 
     if (show_unoccupied && it->getValue() == TreeValue::FREE) {
-      /* bv->addCuboid(c, 0.5, 0.5, 0.5, 0.5, true); */
+      bv->addCuboid(c, 0.5, 0.5, 0.5, 0.5, true);
     }
   }
 }
@@ -735,6 +783,45 @@ octomap::point3d AstarPlanner::generateTemporaryGoal(const octomap::point3d &sta
   }
 
   return temp_goal;
+}
+
+//}
+
+/* touchNode() //{ */
+
+octomap::OcTreeNode *AstarPlanner::touchNode(std::shared_ptr<octomap::OcTree> &octree, const octomap::OcTreeKey &key, unsigned int target_depth) {
+
+  return touchNodeRecurs(octree, octree->getRoot(), key, 0, target_depth);
+}
+
+//}
+
+/* touchNodeRecurs() //{ */
+
+octomap::OcTreeNode *AstarPlanner::touchNodeRecurs(std::shared_ptr<octomap::OcTree> &octree, octomap::OcTreeNode *node, const octomap::OcTreeKey &key,
+                                                   unsigned int depth, unsigned int max_depth) {
+
+  assert(node);
+
+  // follow down to last level
+  if (depth < octree->getTreeDepth() && (max_depth == 0 || depth < max_depth)) {
+
+    unsigned int pos = octomap::computeChildIdx(key, int(octree->getTreeDepth() - depth - 1));
+
+    /* ROS_INFO("pos: %d", pos); */
+    if (!octree->nodeChildExists(node, pos)) {
+
+      // not a pruned node, create requested child
+      octree->createNodeChild(node, pos);
+    }
+
+    return touchNodeRecurs(octree, octree->getNodeChild(node, pos), key, depth + 1, max_depth);
+  }
+
+  // at last level, update node, end of recursion
+  else {
+    return node;
+  }
 }
 
 //}
