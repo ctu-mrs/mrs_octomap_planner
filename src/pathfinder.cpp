@@ -825,7 +825,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       diagnostics_.best_goal.x = waypoints.first.back().x();
       diagnostics_.best_goal.y = waypoints.first.back().y();
-      diagnostics_.best_goal.z = waypoints.first.back().x();
+      diagnostics_.best_goal.z = waypoints.first.back().z();
 
       {
         std::scoped_lock lock(mutex_initial_condition_);

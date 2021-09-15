@@ -82,7 +82,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.2f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
 
   if (!tree_with_tunnel) {
-    ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a plannig tree");
+    ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a planning tree");
     return {std::vector<octomap::point3d>(), false};
   }
 
