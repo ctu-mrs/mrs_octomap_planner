@@ -48,13 +48,14 @@ bool LeafComparator::operator()(const std::pair<octomap::OcTree::iterator, doubl
 }
 
 /* AstarPlanner constructor //{ */
-AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty,
-                           double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude,
-                           bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
+AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, int fractor,
+                           double distance_penalty, double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude,
+                           double max_altitude, bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
 
   this->safe_obstacle_distance    = safe_obstacle_distance;
   this->euclidean_distance_cutoff = euclidean_distance_cutoff;
   this->planning_tree_resolution  = planning_tree_resolution;
+  this->fractor                   = fractor;
   this->distance_penalty          = distance_penalty;
   this->greedy_penalty            = greedy_penalty;
   this->timeout_threshold         = timeout_threshold;
@@ -431,45 +432,34 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   /* resample the incoming map to the desired resolution //{ */
 
   std::shared_ptr<octomap::OcTree> resampled_tree = std::make_shared<octomap::OcTree>(resolution);
-  resampled_tree->clear();
-  resampled_tree->setResolution(resolution);
   resampled_tree->setOccupancyThres(tree->getOccupancyThres());
   resampled_tree->setProbHit(tree->getProbHit());
   resampled_tree->setProbMiss(tree->getProbMiss());
   resampled_tree->setClampingThresMax(tree->getClampingThresMax());
   resampled_tree->setClampingThresMin(tree->getClampingThresMin());
 
-  double min_x, min_y, min_z;
-  double max_x, max_y, max_z;
+  octomap::OcTreeKey key = resampled_tree->coordToKey(0, 0, 0, resampled_tree->getTreeDepth());
+  resampled_tree->setNodeValue(key, 0.0);
 
-  tree->getMetricMin(min_x, min_y, min_z);
-  tree->getMetricMax(max_x, max_y, max_z);
+  for (octomap::OcTree::leaf_iterator it = tree->begin_leafs(tree->getTreeDepth() - fractor), end = tree->end_leafs(); it != end; ++it) {
 
-  int x_steps = int((max_x - min_x) / resolution);
-  int y_steps = int((max_y - min_y) / resolution);
-  int z_steps = int((max_z - min_z) / resolution);
+    octomap::OcTreeNode *orig_node = it.getNode();
 
-  for (int i = 0; i < x_steps; i++) {
+    tree->eatChildren(orig_node);
 
-    double x = min_x + i * resolution;
+    auto orig_key = it.getKey();
 
-    for (int j = 0; j < y_steps; j++) {
+    const unsigned int old_depth = it.getDepth();
+    const unsigned int new_depth = old_depth + fractor;
 
-      double y = min_y + j * resolution;
+    auto new_key = resampled_tree->coordToKey(it.getX(), it.getY(), it.getZ());
 
-      for (int k = 0; k < z_steps; k++) {
+    octomap::OcTreeNode *new_node = touchNode(resampled_tree, new_key, new_depth);
 
-        double z = min_z + k * resolution;
-
-        octomap::OcTreeKey key     = tree->coordToKey(x, y, z);
-        octomap::OcTreeKey key_new = resampled_tree->coordToKey(x, y, z);
-
-        octomap::OcTreeNode *node = tree->search(key);
-
-        if (node) {
-          resampled_tree->setNodeValue(key_new, node->getValue());
-        }
-      }
+    if (tree->isNodeOccupied(orig_node)) {
+      new_node->setLogOdds(1.0);
+    } else {
+      new_node->setLogOdds(-1.0);
     }
   }
 
@@ -671,7 +661,7 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
     }
 
     if (show_unoccupied && it->getValue() == TreeValue::FREE) {
-      bv->addCuboid(c, 0.5, 0.5, 0.5, 0.5, true);
+      /* bv->addCuboid(c, 0.5, 0.5, 0.5, 0.5, true); */
     }
   }
 }
@@ -791,6 +781,10 @@ octomap::point3d AstarPlanner::generateTemporaryGoal(const octomap::point3d &sta
 
 octomap::OcTreeNode *AstarPlanner::touchNode(std::shared_ptr<octomap::OcTree> &octree, const octomap::OcTreeKey &key, unsigned int target_depth) {
 
+  // initialize the tree by insertin a first node
+  octomap::OcTreeKey temp_key = octree->coordToKey(0, 0, 0, octree->getTreeDepth());
+  octree->setNodeValue(temp_key, 0.0);
+
   return touchNodeRecurs(octree, octree->getRoot(), key, 0, target_depth);
 }
 
@@ -801,25 +795,18 @@ octomap::OcTreeNode *AstarPlanner::touchNode(std::shared_ptr<octomap::OcTree> &o
 octomap::OcTreeNode *AstarPlanner::touchNodeRecurs(std::shared_ptr<octomap::OcTree> &octree, octomap::OcTreeNode *node, const octomap::OcTreeKey &key,
                                                    unsigned int depth, unsigned int max_depth) {
 
-  assert(node);
-
-  // follow down to last level
   if (depth < octree->getTreeDepth() && (max_depth == 0 || depth < max_depth)) {
 
     unsigned int pos = octomap::computeChildIdx(key, int(octree->getTreeDepth() - depth - 1));
 
-    /* ROS_INFO("pos: %d", pos); */
     if (!octree->nodeChildExists(node, pos)) {
 
-      // not a pruned node, create requested child
       octree->createNodeChild(node, pos);
     }
 
     return touchNodeRecurs(octree, octree->getNodeChild(node, pos), key, depth + 1, max_depth);
-  }
 
-  // at last level, update node, end of recursion
-  else {
+  } else {
     return node;
   }
 }

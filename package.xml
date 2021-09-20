@@ -18,8 +18,8 @@
   <depend>nav_msgs</depend>
   <depend>mrs_lib</depend>
   <depend>mrs_msgs</depend>
-  <depend>octomap</depend>
   <depend>octomap_msgs</depend>
+  <depend>octomap_ros</depend>
 
   <export>
     <nodelet plugin="${prefix}/nodelets.xml" />

@@ -7,11 +7,11 @@ diagnostics_timer:
 future_check_timer:
   rate: 10.0 # [Hz]
 
-# planning
-planning_tree_resolution: 1.00 # [m] voxel edge size
+planning_tree_fractor: 3 # [-]
+map_resolution: 0.05 # [m] voxel edge size
 
-euclidean_distance_cutoff: 1.2 # [m]
-safe_obstacle_distance: 1.2 # [m]
+euclidean_distance_cutoff: 1.0 # [m]
+safe_obstacle_distance: 1.0 # [m]
 
 distance_penalty: 1.0
 greedy_penalty: 1.0
@@ -22,8 +22,8 @@ max_altitude: 3.0 # [m]
 unknown_is_occupied: false
 replan_after: 1.0 # [s]
 
-timeout_threshold: 2.0 # [s]
-time_for_trajectory_generator: 1.0 # [s]
+timeout_threshold: 1.5 # [s]
+time_for_trajectory_generator: 0.3 # [s]
 
 # visualization
 points_scale: 0.22

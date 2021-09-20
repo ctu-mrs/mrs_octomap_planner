@@ -9,6 +9,8 @@ find_package(catkin REQUIRED
   std_msgs
   nav_msgs
   mrs_msgs
+  octomap_ros
+  octomap_msgs
   )
 
 set(CMAKE_CXX_STANDARD 17)
@@ -17,6 +19,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
 find_package(octomap REQUIRED)
+add_definitions(-DOCTOMAP_NODEBUGOUT)
+
 find_package(dynamicEDT3D REQUIRED)
 
 # include Eigen3
@@ -28,12 +32,13 @@ catkin_package(
   INCLUDE_DIRS include
   CATKIN_DEPENDS roscpp nodelet mrs_lib std_msgs nav_msgs mrs_msgs
   LIBRARIES Pathfinder MrsAstarPlanner
+  DEPENDS OCTOMAP
   )
 
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
-  ${octomap_INCLUDE_DIRS}
+  ${OCTOMAP_INCLUDE_DIRS}
   ${dynamicEDT3D_INCLUDE_DIRS}
   )
 
