@@ -1081,6 +1081,8 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
       return;
     }
 
+    tf = ret.value();
+
     // prepare the potential future trajectory
 
     mrs_msgs::TrajectoryReference trajectory;
