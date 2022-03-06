@@ -171,7 +171,7 @@ private:
   void timeoutControlManagerDiag(const std::string& topic, const ros::Time& last_msg, [[maybe_unused]] const int n_pubs);
 
   // transformer
-  mrs_lib::Transformer transformer_;
+  std::unique_ptr<mrs_lib::Transformer> transformer_;
 
   std::string current_control_frame_;
   std::mutex  mutex_current_control_frame_;
@@ -303,7 +303,8 @@ void Pathfinder::onInit() {
 
   // | ----------------------- transformer ---------------------- |
 
-  transformer_ = mrs_lib::Transformer("Pathfinder", _uav_name_);
+  transformer_ = std::make_unique<mrs_lib::Transformer>("Pathfinder");
+  transformer_->setDefaultPrefix(_uav_name_);
 
   // | -------------------- batch visualiuzer ------------------- |
 
@@ -541,7 +542,7 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs
     reference.reference.position.z = req.goal[2];
     reference.reference.heading    = req.goal[3];
 
-    auto result = transformer_.transformSingle(octree_frame_, reference);
+    auto result = transformer_->transformSingle(reference, octree_frame_);
 
     if (result) {
 
@@ -610,7 +611,7 @@ bool Pathfinder::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSr
     reference.header    = req.header;
     reference.reference = req.reference;
 
-    auto result = transformer_.transformSingle(octree_frame_, reference);
+    auto result = transformer_->transformSingle(reference, octree_frame_);
 
     if (result) {
 
@@ -856,7 +857,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         position_cmd_ref.reference.position.z = position_cmd->position.z;
         position_cmd_ref.reference.heading    = position_cmd->heading;
 
-        auto res = transformer_.transformSingle(octree_frame, position_cmd_ref);
+        auto res = transformer_->transformSingle(position_cmd_ref, octree_frame);
 
         if (!res) {
           ROS_ERROR("[Pathfinder]: could not transform position cmd to the map frame");
@@ -1072,9 +1073,9 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
 
   if (control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
 
-    mrs_lib::TransformStamped tf;
+    geometry_msgs::TransformStamped tf;
 
-    auto ret = transformer_.getTransform(prediction->header.frame_id, octree_frame, prediction->header.stamp);
+    auto ret = transformer_->getTransform(prediction->header.frame_id, octree_frame, prediction->header.stamp);
 
     if (!ret) {
       ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not transform position cmd to the map frame! can not check for potential collisions!");
@@ -1086,8 +1087,8 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
     // prepare the potential future trajectory
 
     mrs_msgs::TrajectoryReference trajectory;
-    trajectory.header.stamp    = ret.value().stamp();
-    trajectory.header.frame_id = ret.value().to();
+    trajectory.header.stamp    = ret.value().header.stamp;
+    trajectory.header.frame_id = transformer_->frame_to(ret.value());
     trajectory.fly_now         = true;
     trajectory.use_heading     = true;
     trajectory.dt              = 0.2;
@@ -1101,7 +1102,7 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
       pose.reference.position.z = prediction->position[i].z;
       pose.reference.heading    = prediction->heading[i];
 
-      auto transformed_pose = transformer_.transform(tf, pose);
+      auto transformed_pose = transformer_->transform(pose, tf);
 
       if (!transformed_pose) {
         ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not transform position cmd to the map frame! can not check for potential collisions!");
@@ -1282,7 +1283,7 @@ std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const 
 
   // transform the initial condition to the current map frame
 
-  auto result = transformer_.transformSingle(octree_frame_, orig_reference);
+  auto result = transformer_->transformSingle(orig_reference, octree_frame_);
 
   if (result) {
 
