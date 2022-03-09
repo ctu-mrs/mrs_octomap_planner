@@ -305,6 +305,7 @@ void Pathfinder::onInit() {
 
   transformer_ = std::make_unique<mrs_lib::Transformer>("Pathfinder");
   transformer_->setDefaultPrefix(_uav_name_);
+  transformer_->retryLookupNewest(true);
 
   // | -------------------- batch visualiuzer ------------------- |
 
