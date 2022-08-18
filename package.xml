@@ -20,6 +20,7 @@
   <depend>mrs_msgs</depend>
   <depend>octomap_msgs</depend>
   <depend>octomap_ros</depend>
+  <depend>mrs_subt_planning_lib</depend>
 
   <export>
     <nodelet plugin="${prefix}/nodelets.xml" />

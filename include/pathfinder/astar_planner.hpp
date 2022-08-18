@@ -73,7 +73,11 @@ private:
 
 public:
   std::pair<std::vector<octomap::point3d>, bool> findPath(const octomap::point3d &start, const octomap::point3d &goal,
-                                                          std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout);
+                                                          std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> mapping_tree,
+                                                          const double timeout);
+
+  std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> initializePlanningTree(
+      const octomap::point3d &start, std::shared_ptr<octomap::OcTree> mapping_tree);
 
 private:
   const std::vector<std::vector<int>> EXPANSION_DIRECTIONS = {{-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {-1, 0, -1}, {-1, 0, 0}, {-1, 0, 1}, {-1, 1, -1},

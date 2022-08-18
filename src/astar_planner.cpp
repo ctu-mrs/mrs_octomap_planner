@@ -67,10 +67,21 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
 }
 //}
 
+std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> AstarPlanner::initializePlanningTree(
+    const octomap::point3d &start, std::shared_ptr<octomap::OcTree> mapping_tree) {
+
+  ros::Time time_start_planning_tree = ros::Time::now();
+  auto      tree_with_tunnel         = createPlanningTree(mapping_tree, start, planning_tree_resolution, start, 10.0);
+  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.2f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
+
+  return tree_with_tunnel;
+}
+
 /* findPath main //{ */
 
-std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octomap::point3d &start_coord, const octomap::point3d &goal_coord,
-                                                                      std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout) {
+std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(
+    const octomap::point3d &start_coord, const octomap::point3d &goal_coord,
+    std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> tree_with_tunnel, const double timeout) {
 
   ROS_INFO("[Astar]: Astar: user goal [%.2f, %.2f, %.2f]", goal_coord.x(), goal_coord.y(), goal_coord.z());
 
@@ -78,12 +89,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   this->timeout_threshold = timeout;
 
-  ros::Time time_start_planning_tree = ros::Time::now();
-  auto      tree_with_tunnel         = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution, start_coord, 10.0);
-  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.2f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
-
   if (!tree_with_tunnel) {
-    ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a planning tree");
+    ROS_WARN_THROTTLE(1.0, "[Astar]: Planning tree is invalid. Returning empty plan.");
     return {std::vector<octomap::point3d>(), false};
   }
 
@@ -91,7 +98,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   auto             tunnel = tree_with_tunnel.value().second;
 
   auto map_goal  = goal_coord;
-  auto map_query = mapping_tree->search(goal_coord);
+  auto map_query = tree.search(goal_coord);
 
   bool original_goal = true;
 
@@ -162,6 +169,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   while (!open.empty() && ros::ok()) {
 
+    iter++;
     Node current = open_heap.top();
     open_heap.pop();
     open.erase(current);
@@ -171,7 +179,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     auto time_now = ros::Time::now();
 
-    if (time_now.toSec() - time_start.toSec() > timeout_threshold) {
+    if (iter  > 100 && time_now.toSec() - time_start.toSec() > timeout_threshold) {
 
       ROS_WARN("[Astar]: Planning timeout! Using current best node as goal.");
       auto path_keys = backtrackPathKeys(best_node == first ? best_node_greedy : best_node, first, parent_map);

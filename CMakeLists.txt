@@ -11,6 +11,7 @@ find_package(catkin REQUIRED
   mrs_msgs
   octomap_ros
   octomap_msgs
+  mrs_subt_planning_lib
   )
 
 set(CMAKE_CXX_STANDARD 17)
@@ -30,7 +31,7 @@ set(Eigen_LIBRARIES ${Eigen_LIBRARIES})
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp nodelet mrs_lib std_msgs nav_msgs mrs_msgs
+  CATKIN_DEPENDS roscpp nodelet mrs_lib std_msgs nav_msgs mrs_msgs mrs_subt_planning_lib
   LIBRARIES Pathfinder MrsAstarPlanner
   DEPENDS OCTOMAP
   )
