@@ -9,8 +9,7 @@ future_check_timer:
 
 # the planner will integrate local maps into a global map
 global_map:
-  resolution: 0.05 # [m] voxel edge size
-  fractor: 3 # [-]
+  resolution: 0.40 # [m] voxel edge size
 
 euclidean_distance_cutoff: 1.0 # [m]
 safe_obstacle_distance: 1.0 # [m]

@@ -84,7 +84,6 @@ private:
   double _safe_obstacle_distance_;
   double _distance_penalty_;
   double _greedy_penalty_;
-  int    _global_map_fractor_;
   double _global_map_resolution_;
   double _timeout_threshold_;
   double _time_for_trajectory_generator_;
@@ -214,7 +213,7 @@ private:
    */
   std::optional<mrs_msgs::ReferenceStamped> getInitialCondition(const ros::Time time);
 
-  bool copyLocalMap(std::shared_ptr<OcTree_t>& from, const int& from_fractor, std::shared_ptr<OcTree_t>& to, const int& to_fractor);
+  bool copyLocalMap(std::shared_ptr<OcTree_t>& from, std::shared_ptr<OcTree_t>& to);
 
   octomap::OcTreeNode* touchNode(std::shared_ptr<OcTree_t>& octree, const octomap::OcTreeKey& key, unsigned int target_depth);
 
@@ -247,7 +246,6 @@ void Pathfinder::onInit() {
   param_loader.loadParam("safe_obstacle_distance", _safe_obstacle_distance_);
   param_loader.loadParam("distance_penalty", _distance_penalty_);
   param_loader.loadParam("greedy_penalty", _greedy_penalty_);
-  param_loader.loadParam("global_map/fractor", _global_map_fractor_);
   param_loader.loadParam("global_map/resolution", _global_map_resolution_);
   param_loader.loadParam("unknown_is_occupied", _unknown_is_occupied_);
   param_loader.loadParam("points_scale", _points_scale_);
@@ -264,7 +262,7 @@ void Pathfinder::onInit() {
     ros::shutdown();
   }
 
-  planning_tree_resolution_ = _global_map_resolution_ * pow(2, _global_map_fractor_);
+  planning_tree_resolution_ = _global_map_resolution_;
 
   octree_global_ = std::make_shared<OcTree_t>(_global_map_resolution_);
 
@@ -400,14 +398,14 @@ void Pathfinder::callbackOctomap(mrs_lib::SubscribeHandler<octomap_msgs::Octomap
   std::optional<OcTreePtr_t> octree_local = msgToMap(wrp.getMsg());
 
   if (!octree_local) {
-    ROS_WARN_THROTTLE(1.0, "[Pathfinder]: received map is empty!"); 
+    ROS_WARN_THROTTLE(1.0, "[Pathfinder]: received map is empty!");
     return;
   }
 
   {
     std::scoped_lock lock(mutex_octree_global_);
 
-    copyLocalMap(*octree_local, 0, octree_global_, _global_map_fractor_);
+    copyLocalMap(*octree_local, octree_global_);
     octree_frame_ = wrp.getMsg()->header.frame_id;
   }
 
@@ -794,9 +792,9 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       plan_from.y() = initial_condition.value().reference.position.y;
       plan_from.z() = initial_condition.value().reference.position.z;
 
-      pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, planning_tree_resolution_,
-                                                                  _global_map_fractor_, _distance_penalty_, _greedy_penalty_, _timeout_threshold_,
-                                                                  _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
+      pathfinder::AstarPlanner planner =
+          pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
+                                   _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
       std::pair<std::vector<octomap::point3d>, bool> waypoints = planner.findPath(plan_from, user_goal_octpoint, octree_global_, time_for_planning);
 
@@ -1497,7 +1495,13 @@ std::vector<double> Pathfinder::estimateSegmentTimes(const std::vector<Eigen::Ve
 
 std::optional<OcTreePtr_t> Pathfinder::msgToMap(const octomap_msgs::OctomapConstPtr octomap) {
 
-  octomap::AbstractOcTree* abstract_tree = octomap_msgs::binaryMsgToMap(*octomap);
+  octomap::AbstractOcTree* abstract_tree;
+
+  if (octomap->binary) {
+    abstract_tree = octomap_msgs::binaryMsgToMap(*octomap);
+  } else {
+    abstract_tree = octomap_msgs::fullMsgToMap(*octomap);
+  }
 
   if (!abstract_tree) {
 
@@ -1515,7 +1519,7 @@ std::optional<OcTreePtr_t> Pathfinder::msgToMap(const octomap_msgs::OctomapConst
 
 /* copyLocalMap() //{ */
 
-bool Pathfinder::copyLocalMap(std::shared_ptr<OcTree_t>& from, const int& from_fractor, std::shared_ptr<OcTree_t>& to, const int& to_fractor) {
+bool Pathfinder::copyLocalMap(std::shared_ptr<OcTree_t>& from, std::shared_ptr<OcTree_t>& to) {
 
   octomap::OcTreeKey minKey, maxKey;
 
@@ -1528,42 +1532,11 @@ bool Pathfinder::copyLocalMap(std::shared_ptr<OcTree_t>& from, const int& from_f
     to->setNodeValue(key, 1.0);
   }
 
-  // iterate over leafs of the original "from" tree (up to the desired fractor depth)
-  for (OcTree_t::leaf_iterator it = from->begin_leafs(from->getTreeDepth() - from_fractor), end = from->end_leafs(); it != end; ++it) {
-
-    octomap::OcTreeNode* orig_node = it.getNode();
-
-    from->eatChildren(orig_node);
+  for (OcTree_t::leaf_iterator it = from->begin_leafs(from->getTreeDepth()), end = from->end_leafs(); it != end; ++it) {
 
     octomap::OcTreeKey   k    = it.getKey();
     octomap::OcTreeNode* node = touchNode(to, k, it.getDepth());
-    node->setValue(orig_node->getValue());
-  }
-
-  // update the region the the fractor of the global map
-  if (to_fractor > from_fractor) {
-
-    double min_x, min_y, min_z;
-    double max_x, max_y, max_z;
-
-    from->getMetricMin(min_x, min_y, min_z);
-    from->getMetricMax(max_x, max_y, max_z);
-
-    octomap::point3d p_min(float(min_x), float(min_y), min_z);
-    octomap::point3d p_max(float(max_x), float(max_y), max_z);
-
-    // iterate over leafs of the original "from" tree (up to the desired fractor depth)
-    for (OcTree_t::leaf_bbx_iterator it = to->begin_leafs_bbx(p_min, p_max, to->getTreeDepth() - to_fractor), end = to->end_leafs_bbx(); it != end; ++it) {
-
-      octomap::OcTreeNode* orig_node = it.getNode();
-
-      to->eatChildren(orig_node);
-    }
-  }
-
-  if (!got_root) {
-    octomap::OcTreeKey key = to->coordToKey(0, 0, 0, to->getTreeDepth());
-    to->deleteNode(key, to->getTreeDepth());
+    node->setValue(it->getValue());
   }
 
   return true;
@@ -1583,7 +1556,7 @@ octomap::OcTreeNode* Pathfinder::touchNode(std::shared_ptr<OcTree_t>& octree, co
 /* touchNodeRecurs() //{ */
 
 octomap::OcTreeNode* Pathfinder::touchNodeRecurs(std::shared_ptr<OcTree_t>& octree, octomap::OcTreeNode* node, const octomap::OcTreeKey& key,
-                                                    unsigned int depth, unsigned int max_depth = 0) {
+                                                 unsigned int depth, unsigned int max_depth = 0) {
 
   assert(node);
 
@@ -1604,8 +1577,6 @@ octomap::OcTreeNode* Pathfinder::touchNodeRecurs(std::shared_ptr<OcTree_t>& octr
 
   // at last level, update node, end of recursion
   else {
-
-    octree->eatChildren(node);
 
     return node;
   }

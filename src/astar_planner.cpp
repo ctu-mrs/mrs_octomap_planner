@@ -48,14 +48,13 @@ bool LeafComparator::operator()(const std::pair<octomap::OcTree::iterator, doubl
 }
 
 /* AstarPlanner constructor //{ */
-AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, int fractor,
-                           double distance_penalty, double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude,
-                           double max_altitude, bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
+AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty,
+                           double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude,
+                           bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
 
   this->safe_obstacle_distance    = safe_obstacle_distance;
   this->euclidean_distance_cutoff = euclidean_distance_cutoff;
   this->planning_tree_resolution  = planning_tree_resolution;
-  this->fractor                   = fractor;
   this->distance_penalty          = distance_penalty;
   this->greedy_penalty            = greedy_penalty;
   this->timeout_threshold         = timeout_threshold;
@@ -441,22 +440,18 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   octomap::OcTreeKey key = resampled_tree->coordToKey(0, 0, 0, resampled_tree->getTreeDepth());
   resampled_tree->setNodeValue(key, 0.0);
 
-  for (octomap::OcTree::leaf_iterator it = tree->begin_leafs(tree->getTreeDepth() - fractor), end = tree->end_leafs(); it != end; ++it) {
-
-    octomap::OcTreeNode *orig_node = it.getNode();
-
-    tree->eatChildren(orig_node);
+  for (octomap::OcTree::leaf_iterator it = tree->begin_leafs(tree->getTreeDepth()), end = tree->end_leafs(); it != end; ++it) {
 
     auto orig_key = it.getKey();
 
     const unsigned int old_depth = it.getDepth();
-    const unsigned int new_depth = old_depth + fractor;
+    const unsigned int new_depth = old_depth;
 
     auto new_key = resampled_tree->coordToKey(it.getX(), it.getY(), it.getZ());
 
     octomap::OcTreeNode *new_node = touchNode(resampled_tree, new_key, new_depth);
 
-    if (tree->isNodeOccupied(orig_node)) {
+    if (tree->isNodeOccupied(*it)) {
       new_node->setLogOdds(1.0);
     } else {
       new_node->setLogOdds(-1.0);
