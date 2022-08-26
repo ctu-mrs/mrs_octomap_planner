@@ -23,8 +23,8 @@ max_altitude: 1000.0 # [m]
 unknown_is_occupied: false
 replan_after: 1.0 # [s]
 
-timeout_threshold: 1.5 # [s]
-time_for_trajectory_generator: 0.3 # [s]
+timeout_threshold: 2.0 # [s]
+time_for_trajectory_generator: 0.5 # [s]
 
 # visualization
 points_scale: 0.22
