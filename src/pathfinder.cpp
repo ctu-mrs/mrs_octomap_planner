@@ -95,6 +95,7 @@ private:
   double _rate_future_check_timer_;
   double _replan_after_;
   bool   _unknown_is_occupied_;
+  double _distance_transform_distance_;
 
   double planning_tree_resolution_;
 
@@ -248,6 +249,7 @@ void Pathfinder::onInit() {
   param_loader.loadParam("greedy_penalty", _greedy_penalty_);
   param_loader.loadParam("global_map/resolution", _global_map_resolution_);
   param_loader.loadParam("unknown_is_occupied", _unknown_is_occupied_);
+  param_loader.loadParam("distance_transform/submap_distance", _distance_transform_distance_);
   param_loader.loadParam("points_scale", _points_scale_);
   param_loader.loadParam("lines_scale", _lines_scale_);
   param_loader.loadParam("max_waypoint_distance", _max_waypoint_distance_);
@@ -740,6 +742,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         ROS_ERROR("[Pathfinder]: don't have a map");
 
+        changeState(STATE_IDLE);
+
         break;
       }
 
@@ -792,8 +796,15 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       plan_from.y() = initial_condition.value().reference.position.y;
       plan_from.z() = initial_condition.value().reference.position.z;
 
+      if ((plan_from - user_goal_octpoint).norm() < planning_tree_resolution_) {
+
+        ROS_INFO_THROTTLE(1.0, "[Pathfinder]: we reached the target");
+        changeState(STATE_IDLE);
+        break;
+      }
+
       pathfinder::AstarPlanner planner =
-          pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
+          pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
                                    _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
       std::pair<std::vector<octomap::point3d>, bool> waypoints = planner.findPath(plan_from, user_goal_octpoint, octree_global_, time_for_planning);

@@ -11,6 +11,11 @@ future_check_timer:
 global_map:
   resolution: 0.40 # [m] voxel edge size
 
+distance_transform:
+
+  # will only create a submap that far from the robot, computing EDT3D on in
+  submap_distance: 20.0 # [m] from the UAV into all directions
+
 euclidean_distance_cutoff: 1.0 # [m]
 safe_obstacle_distance: 1.0 # [m]
 
@@ -20,7 +25,7 @@ greedy_penalty: 1.0
 max_waypoint_distance: 0.0 # [m] // or set negative for no padding
 min_altitude: -1000.0 # [m]
 max_altitude: 1000.0 # [m]
-unknown_is_occupied: false
+unknown_is_occupied: true
 replan_after: 1.0 # [s]
 
 timeout_threshold: 2.0 # [s]

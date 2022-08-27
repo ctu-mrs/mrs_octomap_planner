@@ -52,13 +52,14 @@ struct LeafComparator
 class AstarPlanner {
 
 public:
-  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty, double greedy_penalty,
-               double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude, bool unknown_is_occupied,
-               std::shared_ptr<mrs_lib::BatchVisualizer> bv);
+  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double submap_distance, double planning_tree_resolution,
+               double distance_penalty, double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude,
+               bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv);
 
 private:
   double safe_obstacle_distance;
   double euclidean_distance_cutoff;
+  float  submap_distance;
   double planning_tree_resolution;
   double distance_penalty;
   double greedy_penalty;

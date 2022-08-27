@@ -48,12 +48,13 @@ bool LeafComparator::operator()(const std::pair<octomap::OcTree::iterator, doubl
 }
 
 /* AstarPlanner constructor //{ */
-AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, double distance_penalty,
-                           double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude,
-                           bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
+AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double submap_distance, double planning_tree_resolution,
+                           double distance_penalty, double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude,
+                           double max_altitude, bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
 
   this->safe_obstacle_distance    = safe_obstacle_distance;
   this->euclidean_distance_cutoff = euclidean_distance_cutoff;
+  this->submap_distance           = submap_distance;
   this->planning_tree_resolution  = planning_tree_resolution;
   this->distance_penalty          = distance_penalty;
   this->greedy_penalty            = greedy_penalty;
@@ -440,7 +441,10 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   octomap::OcTreeKey key = resampled_tree->coordToKey(0, 0, 0, resampled_tree->getTreeDepth());
   resampled_tree->setNodeValue(key, 0.0);
 
-  for (octomap::OcTree::leaf_iterator it = tree->begin_leafs(tree->getTreeDepth()), end = tree->end_leafs(); it != end; ++it) {
+  octomap::point3d p_min(start.x() - submap_distance, start.y() - submap_distance, start.z() - submap_distance);
+  octomap::point3d p_max(start.x() + submap_distance, start.y() + submap_distance, start.z() + submap_distance);
+
+  for (octomap::OcTree::leaf_bbx_iterator it = tree->begin_leafs_bbx(p_min, p_max, tree->getTreeDepth()), end = tree->end_leafs_bbx(); it != end; ++it) {
 
     auto orig_key = it.getKey();
 
