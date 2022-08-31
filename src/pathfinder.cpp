@@ -42,6 +42,7 @@
 #include <std_srvs/Trigger.h>
 
 #include <pathfinder/astar_planner.hpp>
+#include <mrs_subt_planning_lib/astar_planner.h>
 
 //}
 
@@ -95,6 +96,11 @@ private:
   double _rate_future_check_timer_;
   double _replan_after_;
   bool   _unknown_is_occupied_;
+  bool   _use_subt_planner_;
+  bool   _subt_make_path_straight_;
+  bool   _subt_apply_postprocessing_;
+  bool   _subt_debug_info_;
+  double _subt_clearing_dist_;
   double _distance_transform_distance_;
 
   double planning_tree_resolution_;
@@ -221,6 +227,8 @@ private:
   octomap::OcTreeNode* touchNodeRecurs(std::shared_ptr<OcTree_t>& octree, octomap::OcTreeNode* node, const octomap::OcTreeKey& key, unsigned int depth,
                                        unsigned int max_depth);
 
+  /* std::shared_ptr<octomap::OcTree> convertOcTreeToBinary(std::shared_ptr<octomap::OcTree> tree, double resolution, double fractor); */
+
   void hover(void);
 };
 
@@ -258,6 +266,11 @@ void Pathfinder::onInit() {
   param_loader.loadParam("timeout_threshold", _timeout_threshold_);
   param_loader.loadParam("replan_after", _replan_after_);
   param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
+  param_loader.loadParam("subt_planner/use", _use_subt_planner_);
+  param_loader.loadParam("subt_planner/make_path_straight", _subt_make_path_straight_);
+  param_loader.loadParam("subt_planner/apply_postprocessing", _subt_apply_postprocessing_);
+  param_loader.loadParam("subt_planner/debug_info", _subt_debug_info_);
+  param_loader.loadParam("subt_planner/clearing_dist", _subt_clearing_dist_);
 
   if (!param_loader.loadedSuccessfully()) {
     ROS_ERROR("[Pathfinder]: could not load all parameters");
@@ -336,6 +349,7 @@ void Pathfinder::onInit() {
   timer_main_         = nh_.createTimer(ros::Rate(_rate_main_timer_), &Pathfinder::timerMain, this);
   timer_future_check_ = nh_.createTimer(ros::Rate(_rate_future_check_timer_), &Pathfinder::timerFutureCheck, this);
   timer_diagnostics_  = nh_.createTimer(ros::Rate(_rate_diagnostics_timer_), &Pathfinder::timerDiagnostics, this);
+
 
   // | --------------------- finish the init -------------------- |
 
@@ -803,11 +817,46 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         break;
       }
 
-      pathfinder::AstarPlanner planner =
+      std::pair<std::vector<octomap::point3d>, bool> waypoints;
+      /* ros::Time                                      mct_start = ros::Time::now(); */
+
+      if (_use_subt_planner_) {
+
+        // | -------------------- MRS SubT planner -------------------- |
+        mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
+
+        /* std::shared_ptr<octomap::OcTree> planning_octree; */
+
+        /* { */
+        /*   std::scoped_lock lock(mutex_octree_global_); */
+        /*   planning_octree = convertOcTreeToBinary(octree_global_, planning_tree_resolution_, _global_map_fractor_); */
+        /* } */
+
+        /* double map_conversion_time = (ros::Time::now() - mct_start).toSec(); */
+        /* ROS_INFO("[Pathfinder]: Map conversion time for subt planner = %.2f", map_conversion_time); */
+        subt_planner.initialize(true, time_for_planning, _safe_obstacle_distance_, _subt_clearing_dist_, _min_altitude_, _max_altitude_,
+                                _subt_debug_info_, bv_planner_, false);
+        waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree_global_, _subt_make_path_straight_, _subt_apply_postprocessing_, true, 2.0);
+
+      } else {
+
+        ROS_INFO("[Pathfinder]: Initializing astar planner.");
+        pathfinder::AstarPlanner planner =
           pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
                                    _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
-      std::pair<std::vector<octomap::point3d>, bool> waypoints = planner.findPath(plan_from, user_goal_octpoint, octree_global_, time_for_planning);
+
+        /* { */
+        /*   std::scoped_lock lock(mutex_octree_global_); */
+        /*   planning_octree = planner.initializePlanningTree(plan_from, octree_global_); */
+        /* } */
+
+        /* double map_conversion_time = (ros::Time::now() - mct_start).toSec(); */
+        /* ROS_INFO("[Pathfinder]: Map conversion time for mrs planner = %.2f", map_conversion_time); */
+        ROS_INFO("[Pathfinder]: Calling find path method.");
+        waypoints = planner.findPath(plan_from, user_goal_octpoint, octree_global_, time_for_planning);
+      }
+
 
       // path is complete
       if (waypoints.second) {
@@ -1592,6 +1641,67 @@ octomap::OcTreeNode* Pathfinder::touchNodeRecurs(std::shared_ptr<OcTree_t>& octr
     return node;
   }
 }
+
+//}
+
+/* convertOcTreeToBinary() //{ */
+
+/* std::shared_ptr<octomap::OcTree> Pathfinder::convertOcTreeToBinary(std::shared_ptr<octomap::OcTree> tree, double resolution, double fractor) { */
+
+/*   /1* resample the incoming map to the desired resolution //{ *1/ */
+
+/*   std::shared_ptr<octomap::OcTree> resampled_tree = std::make_shared<octomap::OcTree>(resolution); */
+/*   resampled_tree->setOccupancyThres(tree->getOccupancyThres()); */
+/*   resampled_tree->setProbHit(tree->getProbHit()); */
+/*   resampled_tree->setProbMiss(tree->getProbMiss()); */
+/*   resampled_tree->setClampingThresMax(tree->getClampingThresMax()); */
+/*   resampled_tree->setClampingThresMin(tree->getClampingThresMin()); */
+
+/*   octomap::OcTreeKey key = resampled_tree->coordToKey(0, 0, 0, resampled_tree->getTreeDepth()); */
+/*   resampled_tree->setNodeValue(key, 0.0); */
+
+/*   for (octomap::OcTree::leaf_iterator it = tree->begin_leafs(tree->getTreeDepth() - fractor), end = tree->end_leafs(); it != end; ++it) { */
+
+/*     octomap::OcTreeNode* orig_node = it.getNode(); */
+
+/*     tree->eatChildren(orig_node); */
+
+/*     auto orig_key = it.getKey(); */
+
+/*     const unsigned int old_depth = it.getDepth(); */
+/*     const unsigned int new_depth = old_depth + fractor; */
+
+/*     auto new_key = resampled_tree->coordToKey(it.getX(), it.getY(), it.getZ()); */
+
+/*     octomap::OcTreeNode* new_node = touchNode(resampled_tree, new_key, new_depth); */
+
+/*     if (tree->isNodeOccupied(orig_node)) { */
+/*       new_node->setLogOdds(1.0); */
+/*     } else { */
+/*       new_node->setLogOdds(-1.0); */
+/*     } */
+/*   } */
+
+/*   resampled_tree->expand(); */
+
+/*   /1* auto edf = euclideanDistanceTransform(resampled_tree, orig_coord, radius); *1/ */
+
+/*   //} */
+
+/*   std::shared_ptr<octomap::OcTree> binary_tree = std::make_shared<octomap::OcTree>(resolution); */
+/*   for (auto it = resampled_tree->begin(); it != resampled_tree->end(); it++) { */
+/*     octomap::OcTreeKey oc_key = resampled_tree->coordToKey(it.getCoordinate()); */
+/*     if (resampled_tree->search(oc_key) != NULL) { */
+/*       if (resampled_tree->isNodeOccupied(resampled_tree->search(oc_key))) { */
+/*         binary_tree->setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED);  // free and safe */
+/*       } else { */
+/*         binary_tree->setNodeValue(it.getCoordinate(), TreeValue::FREE);  // free and safe */
+/*       } */
+/*     } */
+/*   } */
+
+/*   return binary_tree; */
+/* } */
 
 //}
 
