@@ -9,8 +9,12 @@ future_check_timer:
 
 # the planner will integrate local maps into a global map
 global_map:
-  resolution: 0.05 # [m] voxel edge size
-  fractor: 2 # [-]
+  resolution: 0.40 # [m] voxel edge size
+
+distance_transform:
+
+  # will only create a submap that far from the robot, computing EDT3D on in
+  submap_distance: 20.0 # [m] from the UAV into all directions
 
 euclidean_distance_cutoff: 1.0 # [m]
 safe_obstacle_distance: 1.0 # [m]
@@ -19,13 +23,13 @@ distance_penalty: 1.0
 greedy_penalty: 1.0
 
 max_waypoint_distance: 0.0 # [m] // or set negative for no padding
-min_altitude: -6.0 # [m]
-max_altitude: 5.0 # [m]
+min_altitude: -1000.0 # [m]
+max_altitude: 1000.0 # [m]
 unknown_is_occupied: true
 replan_after: 1.0 # [s]
 
-timeout_threshold: 1.5 # [s] - minimum time allowed for planning 
-time_for_trajectory_generator: 0.3 # [s]
+timeout_threshold: 2.0 # [s]
+time_for_trajectory_generator: 0.5 # [s]
 
 subt_planner: 
   use: false

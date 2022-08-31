@@ -48,14 +48,14 @@ bool LeafComparator::operator()(const std::pair<octomap::OcTree::iterator, doubl
 }
 
 /* AstarPlanner constructor //{ */
-AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, int fractor,
+AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double submap_distance, double planning_tree_resolution,
                            double distance_penalty, double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude,
                            double max_altitude, bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
 
   this->safe_obstacle_distance    = safe_obstacle_distance;
   this->euclidean_distance_cutoff = euclidean_distance_cutoff;
+  this->submap_distance           = submap_distance;
   this->planning_tree_resolution  = planning_tree_resolution;
-  this->fractor                   = fractor;
   this->distance_penalty          = distance_penalty;
   this->greedy_penalty            = greedy_penalty;
   this->timeout_threshold         = timeout_threshold;
@@ -67,21 +67,10 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
 }
 //}
 
-std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> AstarPlanner::initializePlanningTree(
-    const octomap::point3d &start, std::shared_ptr<octomap::OcTree> mapping_tree) {
-
-  ros::Time time_start_planning_tree = ros::Time::now();
-  auto      tree_with_tunnel         = createPlanningTree(mapping_tree, start, planning_tree_resolution, start, 10.0);
-  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.2f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
-
-  return tree_with_tunnel;
-}
-
 /* findPath main //{ */
 
-std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(
-    const octomap::point3d &start_coord, const octomap::point3d &goal_coord,
-    std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> tree_with_tunnel, const double timeout) {
+std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octomap::point3d &start_coord, const octomap::point3d &goal_coord,
+                                                                      std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout) {
 
   ROS_INFO("[Astar]: Astar: user goal [%.2f, %.2f, %.2f]", goal_coord.x(), goal_coord.y(), goal_coord.z());
 
@@ -89,8 +78,12 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(
 
   this->timeout_threshold = timeout;
 
+  ros::Time time_start_planning_tree = ros::Time::now();
+  auto      tree_with_tunnel         = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution, start_coord, 10.0);
+  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.2f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
+
   if (!tree_with_tunnel) {
-    ROS_WARN_THROTTLE(1.0, "[Astar]: Planning tree is invalid. Returning empty plan.");
+    ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a planning tree");
     return {std::vector<octomap::point3d>(), false};
   }
 
@@ -98,7 +91,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(
   auto             tunnel = tree_with_tunnel.value().second;
 
   auto map_goal  = goal_coord;
-  auto map_query = tree.search(goal_coord);
+  auto map_query = mapping_tree->search(goal_coord);
 
   bool original_goal = true;
 
@@ -169,7 +162,6 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(
 
   while (!open.empty() && ros::ok()) {
 
-    iter++;
     Node current = open_heap.top();
     open_heap.pop();
     open.erase(current);
@@ -179,7 +171,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(
 
     auto time_now = ros::Time::now();
 
-    if (iter  > 100 && time_now.toSec() - time_start.toSec() > timeout_threshold) {
+    if (time_now.toSec() - time_start.toSec() > timeout_threshold) {
 
       ROS_WARN("[Astar]: Planning timeout! Using current best node as goal.");
       auto path_keys = backtrackPathKeys(best_node == first ? best_node_greedy : best_node, first, parent_map);
@@ -449,22 +441,21 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   octomap::OcTreeKey key = resampled_tree->coordToKey(0, 0, 0, resampled_tree->getTreeDepth());
   resampled_tree->setNodeValue(key, 0.0);
 
-  for (octomap::OcTree::leaf_iterator it = tree->begin_leafs(tree->getTreeDepth() - fractor), end = tree->end_leafs(); it != end; ++it) {
+  octomap::point3d p_min(start.x() - submap_distance, start.y() - submap_distance, start.z() - submap_distance);
+  octomap::point3d p_max(start.x() + submap_distance, start.y() + submap_distance, start.z() + submap_distance);
 
-    octomap::OcTreeNode *orig_node = it.getNode();
-
-    tree->eatChildren(orig_node);
+  for (octomap::OcTree::leaf_bbx_iterator it = tree->begin_leafs_bbx(p_min, p_max, tree->getTreeDepth()), end = tree->end_leafs_bbx(); it != end; ++it) {
 
     auto orig_key = it.getKey();
 
     const unsigned int old_depth = it.getDepth();
-    const unsigned int new_depth = old_depth + fractor;
+    const unsigned int new_depth = old_depth;
 
     auto new_key = resampled_tree->coordToKey(it.getX(), it.getY(), it.getZ());
 
     octomap::OcTreeNode *new_node = touchNode(resampled_tree, new_key, new_depth);
 
-    if (tree->isNodeOccupied(orig_node)) {
+    if (tree->isNodeOccupied(*it)) {
       new_node->setLogOdds(1.0);
     } else {
       new_node->setLogOdds(-1.0);

@@ -52,15 +52,15 @@ struct LeafComparator
 class AstarPlanner {
 
 public:
-  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double planning_tree_resolution, int fractor, double distance_penalty,
-               double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude,
+  AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double submap_distance, double planning_tree_resolution,
+               double distance_penalty, double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude,
                bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv);
 
 private:
   double safe_obstacle_distance;
   double euclidean_distance_cutoff;
+  float  submap_distance;
   double planning_tree_resolution;
-  int    fractor;
   double distance_penalty;
   double greedy_penalty;
   double timeout_threshold;
@@ -73,11 +73,7 @@ private:
 
 public:
   std::pair<std::vector<octomap::point3d>, bool> findPath(const octomap::point3d &start, const octomap::point3d &goal,
-                                                          std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> mapping_tree,
-                                                          const double timeout);
-
-  std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> initializePlanningTree(
-      const octomap::point3d &start, std::shared_ptr<octomap::OcTree> mapping_tree);
+                                                          std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout);
 
 private:
   const std::vector<std::vector<int>> EXPANSION_DIRECTIONS = {{-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {-1, 0, -1}, {-1, 0, 0}, {-1, 0, 1}, {-1, 1, -1},

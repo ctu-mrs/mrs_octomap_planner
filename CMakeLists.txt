@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.1.2)
 project(pathfinder)
 
+add_definitions("-DOCTOMAP_NODEBUGOUT")
+
 find_package(catkin REQUIRED
   roscpp
   cmake_modules
