@@ -14,9 +14,7 @@ diagnostics_timer:
 future_check_timer:
   rate: 10.0 # [Hz]
 
-distance_transform:
-
-  euclidean_distance_cutoff: 1.0 # [m]
+euclidean_distance_cutoff: 1.0 # [m]
 safe_obstacle_distance: 1.0 # [m]
 
 distance_penalty: 1.0
