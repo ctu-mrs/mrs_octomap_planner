@@ -1,3 +1,10 @@
+# the planner will integrate local maps into a global map
+global_map:
+  resolution: 0.40 # [m] voxel edge size
+
+distance_transform:
+  submap_distance: 20.0 # [m] from the UAV into all directions
+
 main_timer:
   rate: 20.0 # [Hz]
 
@@ -7,16 +14,9 @@ diagnostics_timer:
 future_check_timer:
   rate: 10.0 # [Hz]
 
-# the planner will integrate local maps into a global map
-global_map:
-  resolution: 0.40 # [m] voxel edge size
-
 distance_transform:
 
-  # will only create a submap that far from the robot, computing EDT3D on in
-  submap_distance: 20.0 # [m] from the UAV into all directions
-
-euclidean_distance_cutoff: 1.0 # [m]
+  euclidean_distance_cutoff: 1.0 # [m]
 safe_obstacle_distance: 1.0 # [m]
 
 distance_penalty: 1.0
