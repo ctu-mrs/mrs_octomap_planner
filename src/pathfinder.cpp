@@ -407,7 +407,8 @@ void Pathfinder::callbackOctomap(mrs_lib::SubscribeHandler<octomap_msgs::Octomap
   {
     std::scoped_lock lock(mutex_octree_global_);
 
-    copyLocalMap(*octree_local, octree_global_);
+    octree_global_ = *octree_local;
+    /* copyLocalMap(*octree_local, octree_global_); */
     octree_frame_ = wrp.getMsg()->header.frame_id;
   }
 
@@ -805,7 +806,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       pathfinder::AstarPlanner planner =
           pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
-                                   _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
+                                   _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_, nh_);
 
       std::pair<std::vector<octomap::point3d>, bool> waypoints = planner.findPath(plan_from, user_goal_octpoint, octree_global_, time_for_planning);
 

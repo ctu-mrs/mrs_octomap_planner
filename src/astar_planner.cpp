@@ -1,5 +1,12 @@
 #include <pathfinder/astar_planner.hpp>
 
+#include <octomap_msgs/BoundingBoxQueryRequest.h>
+#include <octomap_msgs/GetOctomapRequest.h>
+#include <octomap_msgs/conversions.h>
+#include <octomap_msgs/Octomap.h>
+#include <octomap_msgs/GetOctomap.h>
+#include <octomap_msgs/BoundingBoxQuery.h>
+
 namespace pathfinder
 {
 
@@ -50,7 +57,7 @@ bool LeafComparator::operator()(const std::pair<octomap::OcTree::iterator, doubl
 /* AstarPlanner constructor //{ */
 AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double submap_distance, double planning_tree_resolution,
                            double distance_penalty, double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude,
-                           double max_altitude, bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv) {
+                           double max_altitude, bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv, ros::NodeHandle nh) {
 
   this->safe_obstacle_distance    = safe_obstacle_distance;
   this->euclidean_distance_cutoff = euclidean_distance_cutoff;
@@ -64,6 +71,11 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
   this->max_altitude              = max_altitude;
   this->unknown_is_occupied       = unknown_is_occupied;
   this->bv                        = bv;
+  this->nh                        = nh;
+
+  publisher_octomap               = this->nh.advertise<octomap_msgs::Octomap>("resampled_octomap", 1);
+  publisher_octomap_orig          = this->nh.advertise<octomap_msgs::Octomap>("octomap_orig", 1);
+  publisher_octomap_before_expand = this->nh.advertise<octomap_msgs::Octomap>("resampled_octomap_before_expand", 1);
 }
 //}
 
@@ -303,7 +315,7 @@ std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcT
 
 octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std::vector<int> &direction, octomap::OcTree &tree) {
 
-  auto prev_node = tree.search(key);
+  auto prev_node = tree.search(key);  // TODO this doesnt do anything
 
   octomap::OcTreeKey k;
 
@@ -429,40 +441,73 @@ DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octom
 std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> AstarPlanner::createPlanningTree(
     std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start, double resolution, const octomap::point3d &orig_coord, double radius) {
 
-  /* resample the incoming map to the desired resolution //{ */
-
-  std::shared_ptr<octomap::OcTree> resampled_tree = std::make_shared<octomap::OcTree>(resolution);
-  resampled_tree->setOccupancyThres(tree->getOccupancyThres());
-  resampled_tree->setProbHit(tree->getProbHit());
-  resampled_tree->setProbMiss(tree->getProbMiss());
-  resampled_tree->setClampingThresMax(tree->getClampingThresMax());
-  resampled_tree->setClampingThresMin(tree->getClampingThresMin());
-
-  octomap::OcTreeKey key = resampled_tree->coordToKey(0, 0, 0, resampled_tree->getTreeDepth());
-  resampled_tree->setNodeValue(key, 0.0);
-
-  octomap::point3d p_min(start.x() - submap_distance, start.y() - submap_distance, start.z() - submap_distance);
-  octomap::point3d p_max(start.x() + submap_distance, start.y() + submap_distance, start.z() + submap_distance);
-
-  for (octomap::OcTree::leaf_bbx_iterator it = tree->begin_leafs_bbx(p_min, p_max, tree->getTreeDepth()), end = tree->end_leafs_bbx(); it != end; ++it) {
-
-    auto orig_key = it.getKey();
-
-    const unsigned int old_depth = it.getDepth();
-    const unsigned int new_depth = old_depth;
-
-    auto new_key = resampled_tree->coordToKey(it.getX(), it.getY(), it.getZ());
-
-    octomap::OcTreeNode *new_node = touchNode(resampled_tree, new_key, new_depth);
-
-    if (tree->isNodeOccupied(*it)) {
-      new_node->setLogOdds(1.0);
-    } else {
-      new_node->setLogOdds(-1.0);
-    }
+  octomap_msgs::Octomap map1;
+  map1.header.frame_id = "uav1/slam_mapping_origin";
+  map1.header.stamp    = ros::Time::now();  // TODO
+  bool success1        = octomap_msgs::fullMapToMsg(*tree, map1);
+  if (success1) {
+    publisher_octomap_orig.publish(map1);
+  } else {
+    ROS_WARN("unable to convert resampled_tree to octomap");
   }
 
+  /* resample the incoming map to the desired resolution //{ */
+
+  ROS_INFO("resampling to %.3f from %.3f", resolution, tree->getResolution());
+
+  std::shared_ptr<octomap::OcTree> resampled_tree = tree;
+  /* std::shared_ptr<octomap::OcTree> resampled_tree = std::make_shared<octomap::OcTree>(resolution); */
+  /* resampled_tree->setOccupancyThres(tree->getOccupancyThres()); */
+  /* resampled_tree->setProbHit(tree->getProbHit()); */
+  /* resampled_tree->setProbMiss(tree->getProbMiss()); */
+  /* resampled_tree->setClampingThresMax(tree->getClampingThresMax()); */
+  /* resampled_tree->setClampingThresMin(tree->getClampingThresMin()); */
+
+  /* octomap::OcTreeKey key = resampled_tree->coordToKey(0, 0, 0, resampled_tree->getTreeDepth()); */
+  /* resampled_tree->setNodeValue(key, 0.0); */
+
+  /* octomap::point3d p_min(start.x() - submap_distance, start.y() - submap_distance, start.z() - submap_distance); */
+  /* octomap::point3d p_max(start.x() + submap_distance, start.y() + submap_distance, start.z() + submap_distance); */
+
+  /* for (octomap::OcTree::leaf_bbx_iterator it = tree->begin_leafs_bbx(p_min, p_max, tree->getTreeDepth()), end = tree->end_leafs_bbx(); it != end; ++it) { */
+
+  /*   auto orig_key = it.getKey(); */
+
+  /*   const unsigned int old_depth = it.getDepth(); */
+  /*   const unsigned int new_depth = old_depth; */
+
+  /*   auto new_key = resampled_tree->coordToKey(it.getX(), it.getY(), it.getZ()); */
+
+  /*   octomap::OcTreeNode *new_node = touchNode(resampled_tree, new_key, new_depth); */
+
+  /*   if (tree->isNodeOccupied(*it)) { */
+  /*     new_node->setLogOdds(1.0); */
+  /*   } else { */
+  /*     new_node->setLogOdds(-1.0); */
+  /*   } */
+  /* } */
+
+  /* octomap_msgs::Octomap map0; */
+  /* map0.header.frame_id = "uav1/slam_mapping_origin"; */
+  /* map0.header.stamp    = ros::Time::now();  // TODO */
+  /* bool success0        = octomap_msgs::fullMapToMsg(*resampled_tree, map0); */
+  /* if (success0) { */
+  /*   publisher_octomap_before_expand.publish(map0); */
+  /* } else { */
+  /*   ROS_WARN("unable to convert resampled_tree to octomap"); */
+  /* } */
+
   resampled_tree->expand();
+
+  /* octomap_msgs::Octomap map; */
+  /* map.header.frame_id = "uav1/slam_mapping_origin"; */
+  /* map.header.stamp    = ros::Time::now();  // TODO */
+  /* bool success        = octomap_msgs::fullMapToMsg(*resampled_tree, map); */
+  /* if (success) { */
+  /*   publisher_octomap.publish(map); */
+  /* } else { */
+  /*   ROS_WARN("unable to convert resampled_tree to octomap"); */
+  /* } */
 
   auto edf = euclideanDistanceTransform(resampled_tree, orig_coord, radius);
 
@@ -496,6 +541,9 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
       if (iter1++ > 100) {
         return {};
       }
+
+      std::cout << "iter1: " << iter1 << std::endl;
+      std::cout << current_coords << std::endl;
 
       tunnel.push_back(current_coords);
       binary_tree->setNodeValue(current_coords, TreeValue::FREE);
@@ -660,7 +708,7 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
     }
 
     if (show_unoccupied && it->getValue() == TreeValue::FREE) {
-      /* bv->addCuboid(c, 0.5, 0.5, 0.5, 0.5, true); */
+      bv->addCuboid(c, 0.5, 0.5, 0.5, 0.5, true);
     }
   }
 }

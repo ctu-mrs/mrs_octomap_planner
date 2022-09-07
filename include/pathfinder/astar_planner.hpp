@@ -12,6 +12,8 @@
 
 #include <mrs_lib/batch_visualizer.h>
 
+#include <ros/ros.h>
+
 namespace pathfinder
 {
 
@@ -54,7 +56,7 @@ class AstarPlanner {
 public:
   AstarPlanner(double safe_obstacle_distance, double euclidean_distance_cutoff, double submap_distance, double planning_tree_resolution,
                double distance_penalty, double greedy_penalty, double timeout_threshold, double max_waypoint_distance, double min_altitude, double max_altitude,
-               bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv);
+               bool unknown_is_occupied, std::shared_ptr<mrs_lib::BatchVisualizer> bv, ros::NodeHandle nh);
 
 private:
   double safe_obstacle_distance;
@@ -70,6 +72,11 @@ private:
   bool   unknown_is_occupied;
 
   std::shared_ptr<mrs_lib::BatchVisualizer> bv;
+  ros::NodeHandle nh;
+
+  ros::Publisher publisher_octomap;
+  ros::Publisher publisher_octomap_orig;
+  ros::Publisher publisher_octomap_before_expand;
 
 public:
   std::pair<std::vector<octomap::point3d>, bool> findPath(const octomap::point3d &start, const octomap::point3d &goal,
