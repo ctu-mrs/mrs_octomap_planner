@@ -2,6 +2,9 @@
 global_map:
   resolution: 0.40 # [m] voxel edge size
 
+planning_tree:
+  resolution: 0.4
+
 distance_transform:
   submap_distance: 20.0 # [m] from the UAV into all directions
 
@@ -28,13 +31,17 @@ replan_after: 1.0 # [s]
 
 timeout_threshold: 2.0 # [s]
 time_for_trajectory_generator: 0.5 # [s]
+trajectory_generator_input_length: 15.0 # [s] (the rest of path will be ignored during trajectory generation)
 
 subt_planner: 
-  use: true
+  use: false
   apply_postprocessing: true
   make_path_straight: false # cannot be applied if postprocessing is active
   debug_info: false
   clearing_dist: 1.0
+
+  apply_pruning: true
+  pruning_dist: 0.4
   
   planning_tree: 
     bounding_box: 
@@ -53,5 +60,5 @@ subt_planner:
     distance: 1.0 # (m)
 
 # visualization
-points_scale: 0.10
+points_scale: 0.05
 lines_scale: 0.02

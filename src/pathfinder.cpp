@@ -100,8 +100,10 @@ private:
   bool   _use_subt_planner_;
   bool   _subt_make_path_straight_;
   bool   _subt_apply_postprocessing_;
+  bool   _subt_apply_pruning_;
   bool   _subt_debug_info_;
   double _subt_clearing_dist_;
+  double _subt_pruning_dist_;
   double _subt_bbx_horizontal_;
   double _subt_bbx_vertical_;
   double _subt_processing_safe_dist_;
@@ -112,6 +114,7 @@ private:
   int    _subt_shortening_window_size_;
   int    _subt_shortening_distance_;
   double _distance_transform_distance_;
+  double _trajectory_generation_input_length_;
 
   double planning_tree_resolution_;
 
@@ -269,6 +272,7 @@ void Pathfinder::onInit() {
   param_loader.loadParam("distance_penalty", _distance_penalty_);
   param_loader.loadParam("greedy_penalty", _greedy_penalty_);
   param_loader.loadParam("global_map/resolution", _global_map_resolution_);
+  param_loader.loadParam("planning_tree/resolution", planning_tree_resolution_);
   param_loader.loadParam("unknown_is_occupied", _unknown_is_occupied_);
   param_loader.loadParam("distance_transform/submap_distance", _distance_transform_distance_);
   param_loader.loadParam("points_scale", _points_scale_);
@@ -279,11 +283,14 @@ void Pathfinder::onInit() {
   param_loader.loadParam("timeout_threshold", _timeout_threshold_);
   param_loader.loadParam("replan_after", _replan_after_);
   param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
+  param_loader.loadParam("trajectory_generator_input_length", _trajectory_generation_input_length_);
   param_loader.loadParam("subt_planner/use", _use_subt_planner_);
   param_loader.loadParam("subt_planner/make_path_straight", _subt_make_path_straight_);
   param_loader.loadParam("subt_planner/apply_postprocessing", _subt_apply_postprocessing_);
+  param_loader.loadParam("subt_planner/apply_pruning", _subt_apply_pruning_);
   param_loader.loadParam("subt_planner/debug_info", _subt_debug_info_);
   param_loader.loadParam("subt_planner/clearing_dist", _subt_clearing_dist_);
+  param_loader.loadParam("subt_planner/pruning_dist", _subt_pruning_dist_);
   param_loader.loadParam("subt_planner/planning_tree/bounding_box/horizontal", _subt_bbx_horizontal_);
   param_loader.loadParam("subt_planner/planning_tree/bounding_box/vertical", _subt_bbx_vertical_);
   param_loader.loadParam("subt_planner/postprocessing/safe_dist", _subt_processing_safe_dist_);
@@ -299,7 +306,7 @@ void Pathfinder::onInit() {
     ros::shutdown();
   }
 
-  planning_tree_resolution_ = _global_map_resolution_;
+  /* planning_tree_resolution_ = _global_map_resolution_; */
 
   octree_global_ = std::make_shared<OcTree_t>(_global_map_resolution_);
 
@@ -343,8 +350,8 @@ void Pathfinder::onInit() {
 
   // | --------------------- service servers -------------------- |
 
-  service_server_goto_      = nh_.advertiseService("goto_in", &Pathfinder::callbackGoto, this);
-  service_server_reference_ = nh_.advertiseService("reference_in", &Pathfinder::callbackReference, this);
+  service_server_goto_        = nh_.advertiseService("goto_in", &Pathfinder::callbackGoto, this);
+  service_server_reference_   = nh_.advertiseService("reference_in", &Pathfinder::callbackReference, this);
   service_server_set_planner_ = nh_.advertiseService("planner_type_in", &Pathfinder::callbackSetPlanner, this);
 
   // | ----------------------- transformer ---------------------- |
@@ -881,7 +888,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree_global_, _subt_make_path_straight_, _subt_apply_postprocessing_,
                                           _subt_bbx_horizontal_, _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
                                           _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_shortening_window_size_,
-                                          _subt_shortening_distance_);
+                                          _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_);
 
       } else {
 
@@ -1014,7 +1021,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         cum_time += segment_times[i];
 
-        if (i > 1 && cum_time > 8.0) {
+        if (i > 1 && cum_time > _trajectory_generation_input_length_) {
           ROS_INFO("[Pathfinder]: cutting path in waypoint %d out of %d", i, int(waypoints.first.size()));
           break;
         }
@@ -1059,11 +1066,11 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       srv_trajectory_reference.request.trajectory.fly_now = true;
 
       int cb = 0;
-      ROS_INFO("[Pathfinder]: Mrs trajectory generation output:");
-      for (auto& point : srv_get_path.response.trajectory.points) {
-        ROS_INFO("[Pathfinder]: Trajectory point %02d: [%.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z);
-        cb++;
-      }
+      /* ROS_INFO("[Pathfinder]: Mrs trajectory generation output:"); */
+      /* for (auto& point : srv_get_path.response.trajectory.points) { */
+      /*   ROS_INFO("[Pathfinder]: Trajectory point %02d: [%.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z); */
+      /*   cb++; */
+      /* } */
 
       ROS_INFO("[Pathfinder]: Calling trajectory service with timestamp = %.3f at time %.3f.", srv_trajectory_reference.request.trajectory.header.stamp.toSec(),
                ros::Time::now().toSec());
