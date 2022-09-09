@@ -30,13 +30,28 @@ timeout_threshold: 2.0 # [s]
 time_for_trajectory_generator: 0.5 # [s]
 
 subt_planner: 
-  use: false
-  make_path_straight: true
-  apply_postprocessing: false
+  use: true
+  apply_postprocessing: true
+  make_path_straight: false # cannot be applied if postprocessing is active
   debug_info: false
   clearing_dist: 1.0
+  
+  planning_tree: 
+    bounding_box: 
+      horizontal: 60.0 # (m)
+      vertical: 30.0 # (m)
 
+  postprocessing: 
+    safe_dist: 2.5 # (m)
+    max_iteration: 5
+    horizontal_neighbors_only: true
+    z_diff_tolerance: 0.5 # (m)
+    fix_goal_point: true
+
+  shortening: 
+    window_size: 20
+    distance: 1.0 # (m)
 
 # visualization
-points_scale: 0.16
+points_scale: 0.10
 lines_scale: 0.02

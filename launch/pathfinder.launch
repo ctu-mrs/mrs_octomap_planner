@@ -45,6 +45,7 @@
 
       <remap from="~goto_in" to="~goto" />
       <remap from="~reference_in" to="~reference" />
+      <remap from="~planner_type_in" to="~set_planner" />
 
       <!-- services out -->
 

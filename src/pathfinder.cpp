@@ -32,6 +32,7 @@
 #include <mrs_msgs/Vec4.h>
 #include <mrs_msgs/ReferenceStampedSrv.h>
 #include <mrs_msgs/GetPathSrv.h>
+#include <mrs_msgs/String.h>
 #include <mrs_msgs/MpcPredictionFullState.h>
 #include <mrs_msgs/TrajectoryReferenceSrv.h>
 #include <mrs_msgs/ControlManagerDiagnostics.h>
@@ -101,6 +102,15 @@ private:
   bool   _subt_apply_postprocessing_;
   bool   _subt_debug_info_;
   double _subt_clearing_dist_;
+  double _subt_bbx_horizontal_;
+  double _subt_bbx_vertical_;
+  double _subt_processing_safe_dist_;
+  int    _subt_processing_max_iterations_;
+  bool   _subt_processing_horizontal_neighbors_only_;
+  double _subt_processing_z_diff_tolerance_;
+  bool   _subt_processing_fix_goal_point_;
+  int    _subt_shortening_window_size_;
+  int    _subt_shortening_distance_;
   double _distance_transform_distance_;
 
   double planning_tree_resolution_;
@@ -147,10 +157,12 @@ private:
   // service servers
   ros::ServiceServer service_server_goto_;
   ros::ServiceServer service_server_reference_;
+  ros::ServiceServer service_server_set_planner_;
 
   // service server callbacks
   bool callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res);
   bool callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res);
+  bool callbackSetPlanner([[maybe_unused]] mrs_msgs::String::Request& req, mrs_msgs::String::Response& res);
 
   // service clients
   mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>             sc_get_trajectory_;
@@ -201,6 +213,7 @@ private:
   ros::Time replanning_start_timepoint_;
   ros::Time replanning_end_timepoint_;
 
+  // unused
   octomap::point3d replanning_point_;
   std::mutex       mutex_replanning_point_;
 
@@ -271,6 +284,15 @@ void Pathfinder::onInit() {
   param_loader.loadParam("subt_planner/apply_postprocessing", _subt_apply_postprocessing_);
   param_loader.loadParam("subt_planner/debug_info", _subt_debug_info_);
   param_loader.loadParam("subt_planner/clearing_dist", _subt_clearing_dist_);
+  param_loader.loadParam("subt_planner/planning_tree/bounding_box/horizontal", _subt_bbx_horizontal_);
+  param_loader.loadParam("subt_planner/planning_tree/bounding_box/vertical", _subt_bbx_vertical_);
+  param_loader.loadParam("subt_planner/postprocessing/safe_dist", _subt_processing_safe_dist_);
+  param_loader.loadParam("subt_planner/postprocessing/max_iteration", _subt_processing_max_iterations_);
+  param_loader.loadParam("subt_planner/postprocessing/horizontal_neighbors_only", _subt_processing_horizontal_neighbors_only_);
+  param_loader.loadParam("subt_planner/postprocessing/z_diff_tolerance", _subt_processing_z_diff_tolerance_);
+  param_loader.loadParam("subt_planner/postprocessing/fix_goal_point", _subt_processing_fix_goal_point_);
+  param_loader.loadParam("subt_planner/shortening/window_size", _subt_shortening_window_size_);
+  param_loader.loadParam("subt_planner/shortening/distance", _subt_shortening_distance_);
 
   if (!param_loader.loadedSuccessfully()) {
     ROS_ERROR("[Pathfinder]: could not load all parameters");
@@ -323,6 +345,7 @@ void Pathfinder::onInit() {
 
   service_server_goto_      = nh_.advertiseService("goto_in", &Pathfinder::callbackGoto, this);
   service_server_reference_ = nh_.advertiseService("reference_in", &Pathfinder::callbackReference, this);
+  service_server_set_planner_ = nh_.advertiseService("planner_type_in", &Pathfinder::callbackSetPlanner, this);
 
   // | ----------------------- transformer ---------------------- |
 
@@ -678,6 +701,32 @@ bool Pathfinder::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSr
 
 //}
 
+/* callbackSetPlanner() //{ */
+
+bool Pathfinder::callbackSetPlanner([[maybe_unused]] mrs_msgs::String::Request& req, mrs_msgs::String::Response& res) {
+
+  if (!is_initialized_) {
+    return false;
+  }
+
+  ROS_INFO("[Pathfinder]: Setting planner to %s requested.", req.value.c_str());
+  res.success = true;
+
+  if (req.value == "mrs") {
+    _use_subt_planner_ = false;
+  } else if (req.value == "subt") {
+    _use_subt_planner_ = true;
+  } else {
+    res.success = false;
+  }
+
+  res.message = res.success ? "Planner set successfully." : "Invalid type of planner requested.";
+  ROS_INFO("[Pathfinder]: %s", res.message.c_str());
+  return res.success;
+}
+
+//}
+
 // | ------------------------- timers ------------------------- |
 
 /* timerMain() //{ */
@@ -825,34 +874,22 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         // | -------------------- MRS SubT planner -------------------- |
         mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
 
-        /* std::shared_ptr<octomap::OcTree> planning_octree; */
+        subt_planner.initialize(true, time_for_planning, _safe_obstacle_distance_, _subt_clearing_dist_, _min_altitude_, _max_altitude_, _subt_debug_info_,
+                                bv_planner_, false);
 
-        /* { */
-        /*   std::scoped_lock lock(mutex_octree_global_); */
-        /*   planning_octree = convertOcTreeToBinary(octree_global_, planning_tree_resolution_, _global_map_fractor_); */
-        /* } */
-
-        /* double map_conversion_time = (ros::Time::now() - mct_start).toSec(); */
-        /* ROS_INFO("[Pathfinder]: Map conversion time for subt planner = %.2f", map_conversion_time); */
-        subt_planner.initialize(true, time_for_planning, _safe_obstacle_distance_, _subt_clearing_dist_, _min_altitude_, _max_altitude_,
-                                _subt_debug_info_, bv_planner_, false);
-        waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree_global_, _subt_make_path_straight_, _subt_apply_postprocessing_, true, 2.0);
+        ROS_INFO("[Pathfinder]: Calling find path method.");
+        waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree_global_, _subt_make_path_straight_, _subt_apply_postprocessing_,
+                                          _subt_bbx_horizontal_, _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
+                                          _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_shortening_window_size_,
+                                          _subt_shortening_distance_);
 
       } else {
 
         ROS_INFO("[Pathfinder]: Initializing astar planner.");
-        pathfinder::AstarPlanner planner =
-          pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
-                                   _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
+        pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(
+            _safe_obstacle_distance_, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_,
+            _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
-
-        /* { */
-        /*   std::scoped_lock lock(mutex_octree_global_); */
-        /*   planning_octree = planner.initializePlanningTree(plan_from, octree_global_); */
-        /* } */
-
-        /* double map_conversion_time = (ros::Time::now() - mct_start).toSec(); */
-        /* ROS_INFO("[Pathfinder]: Map conversion time for mrs planner = %.2f", map_conversion_time); */
         ROS_INFO("[Pathfinder]: Calling find path method.");
         waypoints = planner.findPath(plan_from, user_goal_octpoint, octree_global_, time_for_planning);
       }
@@ -937,6 +974,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         path_stamp = ros::Time(0);
       }
 
+      ROS_INFO("[Pathfinder]: Calling path service with timestamp = %.3f at time %.3f.", path_stamp.toSec(), ros::Time::now().toSec());
+
       mrs_msgs::GetPathSrv srv_get_path;
       srv_get_path.request.path.header.frame_id = octree_frame_;
       srv_get_path.request.path.header.stamp    = path_stamp;
@@ -970,6 +1009,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         ref.position.z = waypoints.first[i].z();
         ref.heading    = user_goal.heading;
 
+        ROS_INFO("[Pathfinder]: TG input point %02d: [%.2f, %.2f, %.2f]", i, ref.position.x, ref.position.y, ref.position.z);
         srv_get_path.request.path.points.push_back(ref);
 
         cum_time += segment_times[i];
@@ -1017,6 +1057,16 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
       srv_trajectory_reference.request.trajectory         = srv_get_path.response.trajectory;
       srv_trajectory_reference.request.trajectory.fly_now = true;
+
+      int cb = 0;
+      ROS_INFO("[Pathfinder]: Mrs trajectory generation output:");
+      for (auto& point : srv_get_path.response.trajectory.points) {
+        ROS_INFO("[Pathfinder]: Trajectory point %02d: [%.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z);
+        cb++;
+      }
+
+      ROS_INFO("[Pathfinder]: Calling trajectory service with timestamp = %.3f at time %.3f.", srv_trajectory_reference.request.trajectory.header.stamp.toSec(),
+               ros::Time::now().toSec());
 
       {
         bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
