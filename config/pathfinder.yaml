@@ -42,7 +42,7 @@ subt_planner:
   debug_info: false
   clearing_dist: 1.0
   max_obst_dist: 5.0 # max dist from nearest obstacle (required for reliable localization)
-  admissibility: 2.0 # "suboptimality factor" - 2.0 allows upto 2 times longer paths than optimal path  
+  admissibility: 1.2 # "suboptimality factor" - 2.0 allows upto 2 times longer paths than optimal path  
 
   apply_pruning: true
   pruning_dist: 0.4

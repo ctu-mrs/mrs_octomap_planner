@@ -417,6 +417,22 @@ void Pathfinder::onInit() {
   is_initialized_ = true;
 
   ROS_INFO("[Pathfinder]: initialized");
+
+  if (_use_map_from_file_) {
+    try {
+      octomap_msgs::Octomap octomap;
+      if (loaded_planning_octree_) {
+        octomap_msgs::binaryMapToMsg(*loaded_planning_octree_, octomap);
+        octomap.header.frame_id = _map_frame_;
+        ROS_INFO("[Pathfinder]: Publishing loaded octomap.");
+        pub_loaded_octomap_.publish(octomap);
+      }
+    }
+    catch (...) {
+      ROS_ERROR("exception caught during publishing topic '%s'", pub_loaded_octomap_.getTopic().c_str());
+    }
+  }
+
 }
 
 //}
