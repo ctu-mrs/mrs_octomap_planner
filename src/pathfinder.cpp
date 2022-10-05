@@ -32,6 +32,7 @@
 #include <mrs_msgs/Vec4.h>
 #include <mrs_msgs/ReferenceStampedSrv.h>
 #include <mrs_msgs/GetPathSrv.h>
+#include <mrs_msgs/GetPath.h>
 #include <mrs_msgs/String.h>
 #include <mrs_msgs/MpcPredictionFullState.h>
 #include <mrs_msgs/TrajectoryReferenceSrv.h>
@@ -80,6 +81,7 @@ private:
   bool              is_initialized_ = false;
   std::atomic<bool> ready_to_plan_  = false;
   std::string       _uav_name_;
+  std::string       _map_frame_;
 
   // params
   double _euclidean_distance_cutoff_;
@@ -113,8 +115,13 @@ private:
   bool   _subt_processing_fix_goal_point_;
   int    _subt_shortening_window_size_;
   int    _subt_shortening_distance_;
+  double _subt_max_obst_dist_;
+  double _subt_planner_admissibility_;
   double _distance_transform_distance_;
   double _trajectory_generation_input_length_;
+  bool   _use_map_from_file_;
+
+  std::shared_ptr<OcTree_t> loaded_planning_octree_;
 
   double planning_tree_resolution_;
 
@@ -151,6 +158,7 @@ private:
 
   // publishers
   ros::Publisher pub_diagnostics_;
+  ros::Publisher pub_loaded_octomap_;
 
   // subscriber callbacks
   void callbackPositionCmd(mrs_lib::SubscribeHandler<mrs_msgs::PositionCommand>& wrp);
@@ -161,11 +169,13 @@ private:
   ros::ServiceServer service_server_goto_;
   ros::ServiceServer service_server_reference_;
   ros::ServiceServer service_server_set_planner_;
+  ros::ServiceServer service_server_get_path_;
 
   // service server callbacks
   bool callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res);
   bool callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res);
   bool callbackSetPlanner([[maybe_unused]] mrs_msgs::String::Request& req, mrs_msgs::String::Response& res);
+  bool callbackGetPath([[maybe_unused]] mrs_msgs::GetPath::Request& req, mrs_msgs::GetPath::Response& res);
 
   // service clients
   mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>             sc_get_trajectory_;
@@ -246,6 +256,10 @@ private:
   /* std::shared_ptr<octomap::OcTree> convertOcTreeToBinary(std::shared_ptr<octomap::OcTree> tree, double resolution, double fractor); */
 
   void hover(void);
+
+  bool loadPCDfile(std::string filename, double resolution);
+
+  std::shared_ptr<octomap::OcTree> convertToOctree(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const double resolution);
 };
 
 //}
@@ -300,6 +314,21 @@ void Pathfinder::onInit() {
   param_loader.loadParam("subt_planner/postprocessing/fix_goal_point", _subt_processing_fix_goal_point_);
   param_loader.loadParam("subt_planner/shortening/window_size", _subt_shortening_window_size_);
   param_loader.loadParam("subt_planner/shortening/distance", _subt_shortening_distance_);
+  param_loader.loadParam("subt_planner/max_obst_dist", _subt_max_obst_dist_);
+  param_loader.loadParam("subt_planner/admissibility", _subt_planner_admissibility_);
+
+  param_loader.loadParam("use_map_from_file", _use_map_from_file_);
+  param_loader.loadParam("map_frame", _map_frame_);
+
+
+  if (_use_map_from_file_) {
+    std::string map_file;
+    param_loader.loadParam("map_file", map_file);
+    if (!loadPCDfile(map_file, planning_tree_resolution_)) {
+      ROS_ERROR("[Pathfinder]: could not load map from file");
+      ros::shutdown();
+    }
+  }
 
   if (!param_loader.loadedSuccessfully()) {
     ROS_ERROR("[Pathfinder]: could not load all parameters");
@@ -316,7 +345,8 @@ void Pathfinder::onInit() {
 
   // | ----------------------- publishers ----------------------- |
 
-  pub_diagnostics_ = nh_.advertise<mrs_msgs::PathfinderDiagnostics>("diagnostics_out", 1);
+  pub_diagnostics_    = nh_.advertise<mrs_msgs::PathfinderDiagnostics>("diagnostics_out", 1);
+  pub_loaded_octomap_ = nh_.advertise<octomap_msgs::Octomap>("loaded_octomap_out", 1);
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -353,6 +383,7 @@ void Pathfinder::onInit() {
   service_server_goto_        = nh_.advertiseService("goto_in", &Pathfinder::callbackGoto, this);
   service_server_reference_   = nh_.advertiseService("reference_in", &Pathfinder::callbackReference, this);
   service_server_set_planner_ = nh_.advertiseService("planner_type_in", &Pathfinder::callbackSetPlanner, this);
+  service_server_get_path_    = nh_.advertiseService("get_path_in", &Pathfinder::callbackGetPath, this);
 
   // | ----------------------- transformer ---------------------- |
 
@@ -363,7 +394,7 @@ void Pathfinder::onInit() {
   // | -------------------- batch visualiuzer ------------------- |
 
   bv_input_ = mrs_lib::BatchVisualizer(nh_, "visualize_input", "");
-  bv_input_.setPointsScale(_points_scale_);
+  bv_input_.setPointsScale(6.0 * _points_scale_);
   bv_input_.setLinesScale(_lines_scale_);
 
   bv_planner_ = std::make_shared<mrs_lib::BatchVisualizer>(nh_, "visualize_planner", "");
@@ -371,8 +402,8 @@ void Pathfinder::onInit() {
   bv_planner_->setLinesScale(_lines_scale_);
 
   bv_processed_ = mrs_lib::BatchVisualizer(nh_, "visualize_processed", "");
-  bv_processed_.setPointsScale(_points_scale_);
-  bv_processed_.setLinesScale(_lines_scale_);
+  bv_processed_.setPointsScale(3.0 * _points_scale_);
+  bv_processed_.setLinesScale(3.0 * _lines_scale_);
 
   // | ------------------------- timers ------------------------- |
 
@@ -566,6 +597,34 @@ void Pathfinder::timeoutControlManagerDiag(const std::string& topic, const ros::
 
 //}
 
+/* loadPCDfile() //{ */
+bool Pathfinder::loadPCDfile(std::string filename, double resolution) {
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  if (pcl::io::loadPCDFile<pcl::PointXYZ>(filename.c_str(), *cloud) == -1)  // load the file
+  {
+    ROS_ERROR("Couldn't read file %s\n", filename.c_str());
+    return false;
+  }
+
+  ROS_INFO_STREAM("Loaded " << cloud->width * cloud->height << " data points from " << filename.c_str());
+
+  loaded_planning_octree_ = convertToOctree(cloud, resolution);
+  ROS_INFO("[%s]: Planning octree initialized.", ros::this_node::getName().c_str());
+  return true;
+}
+//}
+
+/* convertToOctree() //{ */
+std::shared_ptr<OcTree_t> Pathfinder::convertToOctree(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const double resolution) {
+  std::shared_ptr<octomap::OcTree> tree = std::make_shared<octomap::OcTree>(resolution);
+  for (auto p : cloud->points) {
+    tree->updateNode(octomap::point3d(p.x, p.y, p.z), true);
+  }
+  tree->updateInnerOccupancy();
+  return tree;
+}
+//}
+
 /* callbackGoto() //{ */
 
 bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
@@ -634,6 +693,181 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs
 
   res.success = true;
   res.message = "goal set";
+  return true;
+}
+
+//}
+
+/* callbackGetPath() //{ */
+
+bool Pathfinder::callbackGetPath([[maybe_unused]] mrs_msgs::GetPath::Request& req, mrs_msgs::GetPath::Response& res) {
+
+  /* prerequisities //{ */
+
+  if (!is_initialized_) {
+    return false;
+  }
+
+  ROS_INFO("[Pathfinder]: Planning request from [%.2f, %.2f, %.2f] to [%.2f, %.2f, %.2f] obtained.", req.start.position.x, req.start.position.y, req.start.position.z, req.goal.position.x, req.goal.position.y, req.goal.position.z);
+
+  ros::Time time_start = ros::Time::now();
+
+  const bool got_octomap = sh_octomap_.hasMsg() && (ros::Time::now() - sh_octomap_.lastMsgTime()).toSec() < 2.0;
+
+  if ((_use_map_from_file_ && !loaded_planning_octree_) && (!_use_map_from_file_ && got_octomap)) {
+    std::stringstream ss;
+    ss << "not ready to plan, missing map";
+
+    ROS_ERROR_STREAM_THROTTLE(0.5, "[Pathfinder]: " << ss.str());
+
+    res.path.clear();
+    res.success = false;
+    res.message = ss.str();
+    return true;
+  }
+
+  if (_use_map_from_file_) {
+    try {
+      octomap_msgs::Octomap octomap;
+      if (loaded_planning_octree_) {
+        octomap_msgs::binaryMapToMsg(*loaded_planning_octree_, octomap);
+        octomap.header.frame_id = _map_frame_;
+        ROS_INFO("[Pathfinder]: Publishing loaded octomap.");
+        pub_loaded_octomap_.publish(octomap);
+      }
+    }
+    catch (...) {
+      ROS_ERROR("exception caught during publishing topic '%s'", pub_loaded_octomap_.getTopic().c_str());
+    }
+
+    if (!bv_planner_frame_set_) {
+      bv_planner_->setParentFrame(_map_frame_);
+      bv_planner_frame_set_ = true;
+    }
+
+    bv_input_.setParentFrame(_map_frame_);
+    bv_processed_.setParentFrame(_map_frame_);
+  }
+
+  /* visualization of input //{ */
+  {
+    std::scoped_lock lock(mutex_bv_input_);
+  
+    bv_input_.clearBuffers();
+    mrs_lib::geometry::Cuboid s(Eigen::Vector3d(req.start.position.x, req.start.position.y, req.start.position.z), Eigen::Vector3d(0.4, 0.4, 0.4),
+                                Eigen::Quaterniond::Identity());
+    mrs_lib::geometry::Cuboid e(Eigen::Vector3d(req.goal.position.x, req.goal.position.y, req.goal.position.z), Eigen::Vector3d(0.4, 0.4, 0.4),
+                                Eigen::Quaterniond::Identity());
+    bv_input_.addCuboid(s, 0.7, 0.7, 0.0, 1.0, true);
+    bv_input_.addCuboid(e, 0.7, 0.0, 0.0, 1.0, true);
+    bv_input_.publish();
+  }
+  //}
+  //}
+
+  ROS_INFO("[Pathfinder]: Time before planning start = %.3f s", (ros::Time::now() - time_start).toSec());
+  double time_for_planning = _timeout_threshold_;
+
+  octomap::point3d plan_from = octomap::point3d(req.start.position.x, req.start.position.y, req.start.position.z);
+  octomap::point3d goal      = octomap::point3d(req.goal.position.x, req.goal.position.y, req.goal.position.z);
+
+  // start coincide with goal
+  if ((plan_from - goal).norm() < planning_tree_resolution_) {
+
+    ROS_INFO_THROTTLE(1.0, "[Pathfinder]: we reached the target");
+
+    res.path.push_back(req.goal);
+    res.success = true;
+    res.message = "start coincide with goal";
+    return true;
+  }
+
+  std::pair<std::vector<octomap::point3d>, bool> waypoints;
+  std::shared_ptr<octomap::OcTree>               planning_tree = _use_map_from_file_ ? loaded_planning_octree_ : octree_global_;
+
+  if (_use_subt_planner_) {
+
+    // | -------------------- MRS SubT planner -------------------- |
+    mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
+
+    subt_planner.initialize(true, time_for_planning, _safe_obstacle_distance_, _subt_clearing_dist_, _min_altitude_, _max_altitude_, _subt_max_obst_dist_,
+                            _subt_debug_info_, bv_planner_, false);
+    subt_planner.setAstarAdmissibility(_subt_planner_admissibility_);
+
+    ROS_INFO("[Pathfinder]: Calling find path method.");
+    waypoints = subt_planner.findPath(plan_from, goal, planning_tree, _subt_make_path_straight_, _subt_apply_postprocessing_, _subt_bbx_horizontal_,
+                                      _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
+                                      _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_shortening_window_size_,
+                                      _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_);
+
+  } else {
+
+    ROS_INFO("[Pathfinder]: Initializing astar planner.");
+    pathfinder::AstarPlanner planner = pathfinder::AstarPlanner(_safe_obstacle_distance_, _euclidean_distance_cutoff_, _distance_transform_distance_,
+                                                                planning_tree_resolution_, _distance_penalty_, _greedy_penalty_, _timeout_threshold_,
+                                                                _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
+
+    ROS_INFO("[Pathfinder]: Calling find path method.");
+    waypoints = planner.findPath(plan_from, goal, planning_tree, time_for_planning);
+  }
+
+  // path is complete?
+  if ((waypoints.first.back() - goal).norm() <= planning_tree->getResolution()) {
+
+    waypoints.first.push_back(goal);
+    res.success = true;
+    res.message = "path found";
+    ROS_INFO("[Pathfinder]: Path found.");
+
+  } else {
+
+    if (waypoints.first.size() < 2) {
+
+      ROS_WARN("[Pathfinder]: Path not found.");
+      res.message = "path not found";
+      res.success = false;
+
+    } else {
+
+      ROS_WARN("[Pathfinder]: Incomplete path found.");
+      res.message = "incomplete path found";
+      res.success = false;
+
+    }
+  }
+
+  // fill response with waypoints
+  for (auto& w : waypoints.first) {
+
+    mrs_msgs::Reference ref;
+    ref.position.x = w.x();
+    ref.position.y = w.y();
+    ref.position.z = w.z();
+    ref.heading    = req.goal.heading;
+
+    res.path.push_back(ref);
+  }
+
+  res.frame_id = _map_frame_;
+
+  ROS_INFO("[Pathfinder]: Path planning took %.3f s", (ros::Time::now() - time_start).toSec());
+
+  {
+    std::scoped_lock lock(mutex_bv_processed_);
+
+    bv_processed_.clearBuffers();
+    for (auto& p : res.path) {
+      auto v = Eigen::Vector3d(p.position.x, p.position.y, p.position.z);
+      bv_processed_.addPoint(v, 0, 0, 1, 1);
+    }
+
+    mrs_msgs::TrajectoryReference t_ref;
+    t_ref.points = res.path;
+    bv_processed_.addTrajectory(t_ref);
+
+    bv_processed_.publish();
+  }
+
   return true;
 }
 
@@ -753,9 +987,13 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
   const bool got_constraints          = sh_constraints_.hasMsg() && (ros::Time::now() - sh_constraints_.lastMsgTime()).toSec() < 2.0;
 
   if (!got_octomap || !got_position_cmd || !got_mpc_prediction || !got_control_manager_diag || !got_constraints) {
-    ROS_INFO_THROTTLE(1.0, "[Pathfinder]: waiting for data: octomap = %s, position cmd = %s, MPC prediction = %s, ControlManager diag = %s, constraints = %s",
-                      got_octomap ? "TRUE" : "FALSE", got_position_cmd ? "TRUE" : "FALSE", got_mpc_prediction ? "TRUE" : "FALSE",
-                      got_control_manager_diag ? "TRUE" : "FALSE", got_constraints ? "TRUE" : "FALSE");
+    if (_use_map_from_file_) {
+      ROS_INFO_THROTTLE(3.0, "[Pathfinder]: Using map from file. Ready to plan.");
+    } else {
+      ROS_INFO_THROTTLE(1.0, "[Pathfinder]: waiting for data: octomap = %s, position cmd = %s, MPC prediction = %s, ControlManager diag = %s, constraints = %s",
+                        got_octomap ? "TRUE" : "FALSE", got_position_cmd ? "TRUE" : "FALSE", got_mpc_prediction ? "TRUE" : "FALSE",
+                        got_control_manager_diag ? "TRUE" : "FALSE", got_constraints ? "TRUE" : "FALSE");
+    }
     return;
   } else {
     ready_to_plan_ = true;
@@ -881,8 +1119,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         // | -------------------- MRS SubT planner -------------------- |
         mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
 
-        subt_planner.initialize(true, time_for_planning, _safe_obstacle_distance_, _subt_clearing_dist_, _min_altitude_, _max_altitude_, _subt_debug_info_,
-                                bv_planner_, false);
+        subt_planner.initialize(true, time_for_planning, _safe_obstacle_distance_, _subt_clearing_dist_, _min_altitude_, _max_altitude_, _subt_max_obst_dist_,
+                                _subt_debug_info_, bv_planner_, false);
 
         ROS_INFO("[Pathfinder]: Calling find path method.");
         waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree_global_, _subt_make_path_straight_, _subt_apply_postprocessing_,

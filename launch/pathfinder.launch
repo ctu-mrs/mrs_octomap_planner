@@ -28,6 +28,8 @@
       <rosparam if="$(eval not arg('custom_config') == '')" file="$(arg custom_config)" />
 
       <param name="uav_name" value="$(arg UAV_NAME)" />
+      <param name="map_frame" value="$(arg UAV_NAME)/gps_origin" />
+      <param name="map_file" value="$(find pathfinder)/maps/pcds/power_tower_danube.pcd" />
 
       <!-- topics in -->
 
@@ -40,12 +42,14 @@
       <!-- topics out -->
 
       <remap from="~diagnostics_out" to="~diagnostics" />
+      <remap from="~loaded_octomap_out" to="~loaded_octomap" />
 
       <!-- services in -->
 
       <remap from="~goto_in" to="~goto" />
       <remap from="~reference_in" to="~reference" />
       <remap from="~planner_type_in" to="~set_planner" />
+      <remap from="~get_path_in" to="~get_path" />
 
       <!-- services out -->
 

@@ -29,16 +29,20 @@ max_altitude: 1000.0 # [m]
 unknown_is_occupied: true
 replan_after: 1.0 # [s]
 
-timeout_threshold: 2.0 # [s]
+timeout_threshold: 5.0 # [s] maximum planning time
 time_for_trajectory_generator: 0.5 # [s]
 trajectory_generator_input_length: 15.0 # [s] (the rest of path will be ignored during trajectory generation)
 
+use_map_from_file: true
+
 subt_planner: 
-  use: false
-  apply_postprocessing: true
-  make_path_straight: false # cannot be applied if postprocessing is active
+  use: true
+  apply_postprocessing: false
+  make_path_straight: true # cannot be applied if postprocessing is active
   debug_info: false
   clearing_dist: 1.0
+  max_obst_dist: 5.0 # max dist from nearest obstacle (required for reliable localization)
+  admissibility: 2.0 # "suboptimality factor" - 2.0 allows upto 2 times longer paths than optimal path  
 
   apply_pruning: true
   pruning_dist: 0.4
