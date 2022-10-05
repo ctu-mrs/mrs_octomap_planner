@@ -64,5 +64,5 @@ subt_planner:
     distance: 1.0 # (m)
 
 # visualization
-points_scale: 0.05
-lines_scale: 0.02
+points_scale: 0.10
+lines_scale: 0.05

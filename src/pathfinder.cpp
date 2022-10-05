@@ -828,7 +828,7 @@ bool Pathfinder::callbackGetPath([[maybe_unused]] mrs_msgs::GetPath::Request& re
   }
 
   // path is complete?
-  if ((waypoints.first.back() - goal).norm() <= planning_tree->getResolution()) {
+  if ((waypoints.first.back() - goal).norm() <= 2.0*planning_tree->getResolution()) {
 
     waypoints.first.push_back(goal);
     res.success = true;
