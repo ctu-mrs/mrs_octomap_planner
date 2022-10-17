@@ -107,6 +107,7 @@ private:
   double _subt_bbx_horizontal_;
   double _subt_bbx_vertical_;
   double _subt_processing_safe_dist_;
+  double _subt_admissibility_;
   int    _subt_processing_max_iterations_;
   bool   _subt_processing_horizontal_neighbors_only_;
   double _subt_processing_z_diff_tolerance_;
@@ -115,6 +116,8 @@ private:
   int    _subt_shortening_distance_;
   double _distance_transform_distance_;
   double _trajectory_generation_input_length_;
+  bool   _trajectory_generation_relax_heading_;
+  bool   _trajectory_generation_use_heading_;
 
   double planning_tree_resolution_;
 
@@ -282,8 +285,9 @@ void Pathfinder::onInit() {
   param_loader.loadParam("max_altitude", _max_altitude_);
   param_loader.loadParam("timeout_threshold", _timeout_threshold_);
   param_loader.loadParam("replan_after", _replan_after_);
-  param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
-  param_loader.loadParam("trajectory_generator_input_length", _trajectory_generation_input_length_);
+  param_loader.loadParam("trajectory_generator/input_trajectory_length", _trajectory_generation_input_length_);
+  param_loader.loadParam("trajectory_generator/use_heading", _trajectory_generation_use_heading_);
+  param_loader.loadParam("trajectory_generator/relax_heading", _trajectory_generation_relax_heading_);
   param_loader.loadParam("subt_planner/use", _use_subt_planner_);
   param_loader.loadParam("subt_planner/make_path_straight", _subt_make_path_straight_);
   param_loader.loadParam("subt_planner/apply_postprocessing", _subt_apply_postprocessing_);
@@ -291,6 +295,7 @@ void Pathfinder::onInit() {
   param_loader.loadParam("subt_planner/debug_info", _subt_debug_info_);
   param_loader.loadParam("subt_planner/clearing_dist", _subt_clearing_dist_);
   param_loader.loadParam("subt_planner/pruning_dist", _subt_pruning_dist_);
+  param_loader.loadParam("subt_planner/admissibility", _subt_admissibility_);
   param_loader.loadParam("subt_planner/planning_tree/bounding_box/horizontal", _subt_bbx_horizontal_);
   param_loader.loadParam("subt_planner/planning_tree/bounding_box/vertical", _subt_bbx_vertical_);
   param_loader.loadParam("subt_planner/postprocessing/safe_dist", _subt_processing_safe_dist_);
@@ -883,6 +888,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         subt_planner.initialize(true, time_for_planning, _safe_obstacle_distance_, _subt_clearing_dist_, _min_altitude_, _max_altitude_, _subt_debug_info_,
                                 bv_planner_, false);
+        subt_planner.setAstarAdmissibility(_subt_admissibility_);
 
         ROS_INFO("[Pathfinder]: Calling find path method.");
         waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree_global_, _subt_make_path_straight_, _subt_apply_postprocessing_,
@@ -987,8 +993,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       srv_get_path.request.path.header.frame_id = octree_frame_;
       srv_get_path.request.path.header.stamp    = path_stamp;
       srv_get_path.request.path.fly_now         = false;
-      srv_get_path.request.path.relax_heading   = true;
-      srv_get_path.request.path.use_heading     = true;
+      srv_get_path.request.path.relax_heading   = _trajectory_generation_relax_heading_;
+      srv_get_path.request.path.use_heading     = _trajectory_generation_use_heading_;
 
       std::vector<Eigen::Vector4d> eig_waypoints;
 
@@ -1193,7 +1199,7 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
     trajectory.header.stamp    = ret.value().header.stamp;
     trajectory.header.frame_id = transformer_->frame_to(ret.value());
     trajectory.fly_now         = true;
-    trajectory.use_heading     = true;
+    trajectory.use_heading     = _trajectory_generation_use_heading_;
     trajectory.dt              = 0.2;
 
     for (int i = 1; i < prediction->position.size(); i++) {

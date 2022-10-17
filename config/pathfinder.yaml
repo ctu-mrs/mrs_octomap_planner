@@ -30,18 +30,22 @@ unknown_is_occupied: true
 replan_after: 1.0 # [s]
 
 timeout_threshold: 2.0 # [s]
-time_for_trajectory_generator: 0.5 # [s]
-trajectory_generator_input_length: 15.0 # [s] (the rest of path will be ignored during trajectory generation)
+
+trajectory_generator:
+  input_trajectory_length: 12.0 # [s] (the rest of path will be ignored during trajectory generation)
+  relax_heading: true # if true, constraints on heading dynamics are ignored during trajectory generation process
+  use_heading: true # if false heading is ignored during trajectory tracking
 
 subt_planner: 
-  use: false
+  use: true
   apply_postprocessing: true
   make_path_straight: false # cannot be applied if postprocessing is active
   debug_info: false
   clearing_dist: 1.0
+  admissibility: 1.0 # allows paths of length up to (admissibility * optimum length)
 
   apply_pruning: true
-  pruning_dist: 0.4
+  pruning_dist: 0.6
   
   planning_tree: 
     bounding_box: 
