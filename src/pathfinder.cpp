@@ -119,6 +119,10 @@ private:
   bool   _trajectory_generation_relax_heading_;
   bool   _trajectory_generation_use_heading_;
 
+  bool   _turn_in_flight_direction_;
+  double _heading_offset_;
+  double _max_segment_length_for_heading_sampling_; //TODO: fix variable name
+
   double planning_tree_resolution_;
 
   std::string octree_frame_;
@@ -284,10 +288,14 @@ void Pathfinder::onInit() {
   param_loader.loadParam("min_altitude", _min_altitude_);
   param_loader.loadParam("max_altitude", _max_altitude_);
   param_loader.loadParam("timeout_threshold", _timeout_threshold_);
+  param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
   param_loader.loadParam("replan_after", _replan_after_);
   param_loader.loadParam("trajectory_generator/input_trajectory_length", _trajectory_generation_input_length_);
   param_loader.loadParam("trajectory_generator/use_heading", _trajectory_generation_use_heading_);
   param_loader.loadParam("trajectory_generator/relax_heading", _trajectory_generation_relax_heading_);
+  param_loader.loadParam("trajectory_generator/turn_in_flight_direction", _turn_in_flight_direction_);
+  param_loader.loadParam("trajectory_generator/heading_offset", _heading_offset_);
+  param_loader.loadParam("trajectory_generator/max_segment_length_heading", _max_segment_length_for_heading_sampling_);
   param_loader.loadParam("subt_planner/use", _use_subt_planner_);
   param_loader.loadParam("subt_planner/make_path_straight", _subt_make_path_straight_);
   param_loader.loadParam("subt_planner/apply_postprocessing", _subt_apply_postprocessing_);
@@ -1013,6 +1021,9 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       std::vector<double> segment_times = estimateSegmentTimes(eig_waypoints, false);
 
       double cum_time = 0;
+      double cum_dist = 0;
+      double dx, dy;
+      int    end_idx;
 
       for (int i = 0; i < waypoints.first.size(); i++) {
 
@@ -1020,9 +1031,56 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         ref.position.x = waypoints.first[i].x();
         ref.position.y = waypoints.first[i].y();
         ref.position.z = waypoints.first[i].z();
-        ref.heading    = user_goal.heading;
 
-        ROS_INFO("[Pathfinder]: TG input point %02d: [%.2f, %.2f, %.2f]", i, ref.position.x, ref.position.y, ref.position.z);
+        // sample heading reference in flight direction
+        if (_turn_in_flight_direction_) {
+
+          if (i < waypoints.first.size() - 1) {  // heading in the direction of flying with prevention of fast turning due to quick changes of path directions
+
+            cum_dist = 0.0;
+            end_idx = i+1;
+            while (cum_dist < _max_segment_length_for_heading_sampling_) {
+              dx = waypoints.first[end_idx].x() - ref.position.x;
+              dy = waypoints.first[end_idx].y() - ref.position.y;
+              cum_dist += (waypoints.first[end_idx] - waypoints.first[end_idx-1]).norm();
+              end_idx = fmin(++end_idx, waypoints.first.size() - 1);
+            }
+
+            if (fabs(dx) > 1e-3 || fabs(dy) > 1e-3) {
+              ref.heading = atan2(dy, dx) + _heading_offset_;
+            } else {
+              if (i > 0) {
+                ref.heading = srv_get_path.request.path.points.back().heading;
+              } else {
+                ref.heading = initial_heading_;
+              }
+            }
+          } else {
+            if (waypoints.first.size() > 1) {
+              ref.heading = srv_get_path.request.path.points.back().heading;
+            } else {
+              ref.heading = initial_heading_;
+            }
+          }
+        } else {
+
+          ref.heading = user_goal.heading;
+        }
+
+        if (i > 0) { 
+          double waypoint_dist = (waypoints.first[i] - waypoints.first[i-1]).norm();
+          if (waypoint_dist > _max_segment_length_for_heading_sampling_) {
+            mrs_msgs::Reference inter_ref;
+            inter_ref.position.x = waypoints.first[i-1].x() + (waypoints.first[i].x() - waypoints.first[i-1].x()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
+            inter_ref.position.y = waypoints.first[i-1].y() + (waypoints.first[i].y() - waypoints.first[i-1].y()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
+            inter_ref.position.z = waypoints.first[i-1].z() + (waypoints.first[i].z() - waypoints.first[i-1].z()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
+            inter_ref.heading = ref.heading;
+            srv_get_path.request.path.points.push_back(inter_ref);
+            ROS_INFO("[Pathfinder]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y, inter_ref.position.z, inter_ref.heading);
+          }
+        }
+
+        ROS_INFO("[Pathfinder]: TG input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, ref.position.x, ref.position.y, ref.position.z, ref.heading);
         srv_get_path.request.path.points.push_back(ref);
 
         cum_time += segment_times[i];

@@ -30,11 +30,15 @@ unknown_is_occupied: true
 replan_after: 1.0 # [s]
 
 timeout_threshold: 2.0 # [s]
+time_for_trajectory_generator: 0.1 # [s]
 
 trajectory_generator:
   input_trajectory_length: 12.0 # [s] (the rest of path will be ignored during trajectory generation)
-  relax_heading: true # if true, constraints on heading dynamics are ignored during trajectory generation process
+  relax_heading: false # if true, constraints on heading dynamics are ignored during trajectory generation process
   use_heading: true # if false heading is ignored during trajectory tracking
+  heading_offset: 0.0 # [rad] offset of desired heading to direction of flight 
+  turn_in_flight_direction: true # sample heading reference in direction of flight 
+  max_segment_length_heading: 1.0 # [m] maximum length of segment for heading sampling
 
 subt_planner: 
   use: true
