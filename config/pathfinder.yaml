@@ -33,7 +33,7 @@ timeout_threshold: 2.0 # [s]
 
 trajectory_generator:
   input_trajectory_length: 12.0 # [s] (the rest of path will be ignored during trajectory generation)
-  relax_heading: true # if true, constraints on heading dynamics are ignored during trajectory generation process
+  relax_heading: false # if true, constraints on heading dynamics are ignored during trajectory generation process
   use_heading: true # if false heading is ignored during trajectory tracking
 
 subt_planner: 
