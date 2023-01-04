@@ -86,7 +86,6 @@ private:
   double _safe_obstacle_distance_;
   double _distance_penalty_;
   double _greedy_penalty_;
-  double _global_map_resolution_;
   double _timeout_threshold_;
   double _time_for_trajectory_generator_;
   double _max_waypoint_distance_;
@@ -121,7 +120,7 @@ private:
 
   bool   _turn_in_flight_direction_;
   double _heading_offset_;
-  double _max_segment_length_for_heading_sampling_; //TODO: fix variable name
+  double _max_segment_length_for_heading_sampling_;  // TODO: fix variable name
 
   double planning_tree_resolution_;
 
@@ -278,7 +277,6 @@ void Pathfinder::onInit() {
   param_loader.loadParam("safe_obstacle_distance", _safe_obstacle_distance_);
   param_loader.loadParam("distance_penalty", _distance_penalty_);
   param_loader.loadParam("greedy_penalty", _greedy_penalty_);
-  param_loader.loadParam("global_map/resolution", _global_map_resolution_);
   param_loader.loadParam("planning_tree/resolution", planning_tree_resolution_);
   param_loader.loadParam("unknown_is_occupied", _unknown_is_occupied_);
   param_loader.loadParam("distance_transform/submap_distance", _distance_transform_distance_);
@@ -319,9 +317,7 @@ void Pathfinder::onInit() {
     ros::shutdown();
   }
 
-  /* planning_tree_resolution_ = _global_map_resolution_; */
-
-  octree_global_ = std::make_shared<OcTree_t>(_global_map_resolution_);
+  octree_global_ = nullptr;
 
   // | ---------------------- state machine --------------------- |
 
@@ -463,6 +459,12 @@ void Pathfinder::callbackOctomap(mrs_lib::SubscribeHandler<octomap_msgs::Octomap
 
   {
     std::scoped_lock lock(mutex_octree_global_);
+
+    if (octree_global_ == nullptr) {
+      double resolution = octree_local->get()->getResolution();
+      ROS_INFO("[Pathfinder]: Creating global octree with resolution %.3f", resolution);
+      octree_global_ = std::make_shared<OcTree_t>(resolution);
+    }
 
     copyLocalMap(*octree_local, octree_global_);
     octree_frame_ = wrp.getMsg()->header.frame_id;
@@ -925,6 +927,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       } else {
 
+        ROS_INFO("[Pathfinder]: path length: %d", (int)waypoints.first.size());
         if (waypoints.first.size() < 2) {
 
           ROS_WARN("[Pathfinder]: path not found");
@@ -1038,11 +1041,11 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           if (i < waypoints.first.size() - 1) {  // heading in the direction of flying with prevention of fast turning due to quick changes of path directions
 
             cum_dist = 0.0;
-            end_idx = i+1;
+            end_idx  = i + 1;
             while (cum_dist < _max_segment_length_for_heading_sampling_) {
               dx = waypoints.first[end_idx].x() - ref.position.x;
               dy = waypoints.first[end_idx].y() - ref.position.y;
-              cum_dist += (waypoints.first[end_idx] - waypoints.first[end_idx-1]).norm();
+              cum_dist += (waypoints.first[end_idx] - waypoints.first[end_idx - 1]).norm();
               end_idx = fmin(++end_idx, waypoints.first.size() - 1);
             }
 
@@ -1067,16 +1070,20 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           ref.heading = user_goal.heading;
         }
 
-        if (i > 0) { 
-          double waypoint_dist = (waypoints.first[i] - waypoints.first[i-1]).norm();
+        if (i > 0) {
+          double waypoint_dist = (waypoints.first[i] - waypoints.first[i - 1]).norm();
           if (waypoint_dist > _max_segment_length_for_heading_sampling_) {
             mrs_msgs::Reference inter_ref;
-            inter_ref.position.x = waypoints.first[i-1].x() + (waypoints.first[i].x() - waypoints.first[i-1].x()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
-            inter_ref.position.y = waypoints.first[i-1].y() + (waypoints.first[i].y() - waypoints.first[i-1].y()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
-            inter_ref.position.z = waypoints.first[i-1].z() + (waypoints.first[i].z() - waypoints.first[i-1].z()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
+            inter_ref.position.x =
+                waypoints.first[i - 1].x() + (waypoints.first[i].x() - waypoints.first[i - 1].x()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
+            inter_ref.position.y =
+                waypoints.first[i - 1].y() + (waypoints.first[i].y() - waypoints.first[i - 1].y()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
+            inter_ref.position.z =
+                waypoints.first[i - 1].z() + (waypoints.first[i].z() - waypoints.first[i - 1].z()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
             inter_ref.heading = ref.heading;
             srv_get_path.request.path.points.push_back(inter_ref);
-            ROS_INFO("[Pathfinder]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y, inter_ref.position.z, inter_ref.heading);
+            ROS_INFO("[Pathfinder]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y, inter_ref.position.z,
+                     inter_ref.heading);
           }
         }
 
@@ -1302,26 +1309,31 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
         if (!ray_is_cool) {
 
           ROS_ERROR_THROTTLE(0.1, "[Pathfinder]: future check found collision with prediction horizon between %d and %d, hovering!", i, i + 1);
+          // TODO try to do raycasting along the vector between two points of the trajectory up to a certain safety distance?
 
-          // shorten the trajectory
-          for (int j = int(trajectory.points.size()) - 1; j >= floor(i / 2.0); j--) {
-            trajectory.points.pop_back();
-          }
+          /* // shorten the trajectory */
+          /* for (int j = int(trajectory.points.size()) - 1; j >= floor(i / 2.0); j--) { */
+          /*   trajectory.points.pop_back(); */
+          /* } */
 
-          mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
-          srv_trajectory_reference.request.trajectory = trajectory;
+          /* mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference; */
+          /* srv_trajectory_reference.request.trajectory = trajectory; */
 
-          bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
+          /* bool success = sc_trajectory_reference_.call(srv_trajectory_reference); */
 
-          if (!success) {
-            ROS_ERROR("[Pathfinder]: service call for trajectory reference failed");
-            break;
-          } else {
-            if (!srv_trajectory_reference.response.success) {
-              ROS_ERROR("[Pathfinder]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
-              break;
-            }
-          }
+          /* if (!success) { */
+          /*   ROS_ERROR("[Pathfinder]: service call for trajectory reference failed"); */
+          /*   break; */
+          /* } else { */
+          /*   if (!srv_trajectory_reference.response.success) { */
+          /*     ROS_ERROR("[Pathfinder]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str()); */
+          /*     break; */
+          /*   } */
+          /* } */
+
+          // the trajectory directly passes through an obstacle, trigger hovering
+          changeState(STATE_IDLE);
+          hover();
 
           break;
         }
