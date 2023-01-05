@@ -95,6 +95,7 @@ private:
   double _rate_diagnostics_timer_;
   double _rate_future_check_timer_;
   double _replan_after_;
+  double _min_path_length_;
   bool   _unknown_is_occupied_;
   bool   _use_subt_planner_;
   bool   _subt_make_path_straight_;
@@ -288,6 +289,7 @@ void Pathfinder::onInit() {
   param_loader.loadParam("timeout_threshold", _timeout_threshold_);
   param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
   param_loader.loadParam("replan_after", _replan_after_);
+  param_loader.loadParam("min_path_length", _min_path_length_);
   param_loader.loadParam("trajectory_generator/input_trajectory_length", _trajectory_generation_input_length_);
   param_loader.loadParam("trajectory_generator/use_heading", _trajectory_generation_use_heading_);
   param_loader.loadParam("trajectory_generator/relax_heading", _trajectory_generation_relax_heading_);
@@ -947,9 +949,9 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         double path_start_end_dist = sqrt(pow(front_x - back_x, 2) + pow(front_y - back_y, 2) + pow(front_z - back_z, 2));
 
-        if (path_start_end_dist < 0.1) {
+        if (path_start_end_dist < _min_path_length_) {
 
-          ROS_WARN("[Pathfinder]: path too short");
+          ROS_WARN("[Pathfinder]: path too short, length: %.3f", path_start_end_dist);
 
           replanning_counter_++;
 
@@ -1126,6 +1128,35 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       }
 
       auto trajectory = srv_get_path.response.trajectory;
+
+      // check if the trajectory is safe
+      for (int i = 0; i < trajectory.points.size() - 1; i++) {
+        octomap::point3d point1(trajectory.points[i].position.x, trajectory.points[i].position.y, trajectory.points[i].position.z);
+        octomap::point3d point2(trajectory.points[i + 1].position.x, trajectory.points[i + 1].position.y, trajectory.points[i + 1].position.z);
+
+        octomap::KeyRay key_ray;
+
+        if (octree_global_->computeRayKeys(point1, point2, key_ray)) {
+          bool ray_is_cool = true;
+          for (octomap::KeyRay::iterator it1 = key_ray.begin(), end = key_ray.end(); it1 != end; ++it1) {
+            auto node = octree_global_->search(*it1);
+            if (node && octree_global_->isNodeOccupied(node)) {
+              ray_is_cool = false;
+              break;
+            }
+          }
+          if (!ray_is_cool) {
+            ROS_ERROR_THROTTLE(0.1, "[Pathfinder]: trajectory check found collision with prediction horizon between %d and %d, hovering!", i, i + 1);
+            replanning_counter_++;
+            break;
+          }
+        } else {
+          ROS_ERROR_THROTTLE(0.1, "[Pathfinder]: trajectory check failed, could not raytrace!");
+          replanning_counter_++;
+          break;
+        }
+      }
+
       ROS_INFO("[Pathfinder]: Setting replanning point");
       setReplanningPoint(trajectory);
       set_timepoints_ = true;

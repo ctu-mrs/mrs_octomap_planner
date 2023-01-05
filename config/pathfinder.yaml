@@ -17,6 +17,8 @@ future_check_timer:
 euclidean_distance_cutoff: 1.0 # [m]
 safe_obstacle_distance: 1.0 # [m]
 
+min_path_length: 0.2 # [m]
+
 distance_penalty: 1.0
 greedy_penalty: 1.0
 
@@ -42,7 +44,7 @@ subt_planner:
   apply_postprocessing: true
   make_path_straight: false # cannot be applied if postprocessing is active
   debug_info: false
-  clearing_dist: 1.0
+  clearing_dist: 0.15 # [m] clear occupied and unknown space up to this distance from the starting position, might cause collision if greater than min_path_length
   admissibility: 1.0 # allows paths of length up to (admissibility * optimum length)
 
   apply_pruning: true
