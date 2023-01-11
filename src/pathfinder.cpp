@@ -166,11 +166,13 @@ private:
 
   // service servers
   ros::ServiceServer service_server_goto_;
+  ros::ServiceServer service_server_stop_;
   ros::ServiceServer service_server_reference_;
   ros::ServiceServer service_server_set_planner_;
 
   // service server callbacks
   bool callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res);
+  bool callbackStop([[maybe_unused]] std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
   bool callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res);
   bool callbackSetPlanner([[maybe_unused]] mrs_msgs::String::Request& req, mrs_msgs::String::Response& res);
 
@@ -362,6 +364,7 @@ void Pathfinder::onInit() {
   // | --------------------- service servers -------------------- |
 
   service_server_goto_        = nh_.advertiseService("goto_in", &Pathfinder::callbackGoto, this);
+  service_server_stop_        = nh_.advertiseService("stop_in", &Pathfinder::callbackStop, this);
   service_server_reference_   = nh_.advertiseService("reference_in", &Pathfinder::callbackReference, this);
   service_server_set_planner_ = nh_.advertiseService("planner_type_in", &Pathfinder::callbackSetPlanner, this);
 
@@ -582,6 +585,36 @@ void Pathfinder::timeoutControlManagerDiag(const std::string& topic, const ros::
 }
 
 //}
+
+
+bool Pathfinder::callbackStop([[maybe_unused]] std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
+
+  if (!is_initialized_) {
+    return false;
+  }
+
+  if (!ready_to_plan_) {
+    std::stringstream ss;
+    ss << "not ready to plan, missing data";
+
+    ROS_ERROR_STREAM_THROTTLE(0.5, "[Pathfinder]: " << ss.str());
+
+    res.success = false;
+    res.message = ss.str();
+    return true;
+  }
+  changeState(STATE_IDLE);
+  hover();
+
+  std::stringstream ss;
+  ss << "Stopping by request";
+
+  ROS_ERROR_STREAM_THROTTLE(0.5, "[Pathfinder]: " << ss.str());
+  res.success = true;
+  res.message = ss.str();
+  return true;
+
+}
 
 /* callbackGoto() //{ */
 

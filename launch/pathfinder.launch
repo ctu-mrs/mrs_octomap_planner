@@ -44,6 +44,7 @@
       <!-- services in -->
 
       <remap from="~goto_in" to="~goto" />
+      <remap from="~stop_in" to="~stop" />
       <remap from="~reference_in" to="~reference" />
       <remap from="~planner_type_in" to="~set_planner" />
 
