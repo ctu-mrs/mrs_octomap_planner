@@ -586,6 +586,7 @@ void Pathfinder::timeoutControlManagerDiag(const std::string& topic, const ros::
 
 //}
 
+/* callbackStop() //{ */
 
 bool Pathfinder::callbackStop([[maybe_unused]] std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
 
@@ -615,6 +616,8 @@ bool Pathfinder::callbackStop([[maybe_unused]] std_srvs::Trigger::Request& req, 
   return true;
 
 }
+
+//}
 
 /* callbackGoto() //{ */
 
