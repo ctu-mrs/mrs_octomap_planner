@@ -1789,7 +1789,7 @@ bool Pathfinder::copyLocalMap(std::shared_ptr<OcTree_t>& from, std::shared_ptr<O
 
   if (!got_root) {
     octomap::OcTreeKey key = to->coordToKey(0, 0, 0, to->getTreeDepth());
-    to->setNodeValue(key, 1.0);
+    to->setNodeValue(key, octomap::logodds(0.0));
   }
 
   for (OcTree_t::leaf_iterator it = from->begin_leafs(from->getTreeDepth()), end = from->end_leafs(); it != end; ++it) {
