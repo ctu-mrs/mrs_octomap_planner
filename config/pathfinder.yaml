@@ -31,6 +31,10 @@ replan_after: 1.0 # [s]
 timeout_threshold: 2.0 # [s]
 time_for_trajectory_generator: 0.1 # [s]
 
+# future collision check
+collision_check_point_count: 8 # [-] number of points used for future collision check of UAV trajectory, uniformly sampled on a 2D circle around each trajectory point
+min_allowed_trajectory_points_after_crop: 10 # [-] when future trajectory approaches an obstacle, it can be cropped up to this number of points
+
 trajectory_generator:
   input_trajectory_length: 12.0 # [s] (the rest of path will be ignored during trajectory generation)
   relax_heading: false # if true, constraints on heading dynamics are ignored during trajectory generation process
@@ -69,3 +73,7 @@ subt_planner:
 # visualization
 points_scale: 0.05
 lines_scale: 0.02
+
+scope_timer:
+  enable: false # enable scope timer for measuring processing time?
+  duration: 0.1 # [s] scope timer output is throttled to this period

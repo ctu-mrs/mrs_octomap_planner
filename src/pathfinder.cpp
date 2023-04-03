@@ -118,6 +118,10 @@ private:
   double _trajectory_generation_input_length_;
   bool   _trajectory_generation_relax_heading_;
   bool   _trajectory_generation_use_heading_;
+  int    _collision_check_point_count_;
+  int    _min_allowed_trajectory_points_after_crop_;
+  bool    _scope_timer_enabled_;
+  double    _scope_timer_duration_;
 
   bool   _turn_in_flight_direction_;
   double _heading_offset_;
@@ -315,6 +319,10 @@ void Pathfinder::onInit() {
   param_loader.loadParam("subt_planner/postprocessing/fix_goal_point", _subt_processing_fix_goal_point_);
   param_loader.loadParam("subt_planner/shortening/window_size", _subt_shortening_window_size_);
   param_loader.loadParam("subt_planner/shortening/distance", _subt_shortening_distance_);
+  param_loader.loadParam("collision_check_point_count", _collision_check_point_count_);
+  param_loader.loadParam("min_allowed_trajectory_points_after_crop", _min_allowed_trajectory_points_after_crop_);
+  param_loader.loadParam("scope_timer/enable", _scope_timer_enabled_);
+  param_loader.loadParam("scope_timer/duration", _scope_timer_duration_);
 
   if (!param_loader.loadedSuccessfully()) {
     ROS_ERROR("[Pathfinder]: could not load all parameters");
@@ -614,7 +622,6 @@ bool Pathfinder::callbackStop([[maybe_unused]] std_srvs::Trigger::Request& req, 
   res.success = true;
   res.message = ss.str();
   return true;
-
 }
 
 //}
@@ -861,6 +868,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
     case STATE_PLANNING: {
 
+      mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerMain - STATE_PLANNING", ros::Duration(_scope_timer_duration_), _scope_timer_enabled_);
+
       if (!octree_global_->getRoot()) {
 
         ROS_ERROR("[Pathfinder]: don't have a map");
@@ -901,7 +910,11 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       ROS_INFO("[Pathfinder]: init cond time %.2f s", init_cond_time.toSec());
 
+      timer.checkpoint("before getInitialCondition");
+
       auto initial_condition = getInitialCondition(init_cond_time);
+
+      timer.checkpoint("after getInitialCondition");
 
       if (!initial_condition) {
 
@@ -955,6 +968,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         waypoints = planner.findPath(plan_from, user_goal_octpoint, octree_global_, time_for_planning);
       }
 
+      timer.checkpoint("after findPath()");
 
       // path is complete
       if (waypoints.second) {
@@ -1138,6 +1152,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       ROS_INFO("[Pathfinder]: calling trajectory generation");
 
+      timer.checkpoint("calling trajectory generation");
+
       {
         bool success = sc_get_trajectory_.call(srv_get_path);
 
@@ -1166,31 +1182,33 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       auto trajectory = srv_get_path.response.trajectory;
 
       // check if the trajectory is safe
+      bool ray_is_cool = true;
       for (int i = 0; i < trajectory.points.size() - 1; i++) {
+        // check for obstacles between the path waypoints
         octomap::point3d point1(trajectory.points[i].position.x, trajectory.points[i].position.y, trajectory.points[i].position.z);
         octomap::point3d point2(trajectory.points[i + 1].position.x, trajectory.points[i + 1].position.y, trajectory.points[i + 1].position.z);
 
         octomap::KeyRay key_ray;
 
         if (octree_global_->computeRayKeys(point1, point2, key_ray)) {
-          bool ray_is_cool = true;
           for (octomap::KeyRay::iterator it1 = key_ray.begin(), end = key_ray.end(); it1 != end; ++it1) {
             auto node = octree_global_->search(*it1);
             if (node && octree_global_->isNodeOccupied(node)) {
+              ROS_ERROR_THROTTLE(0.1, "[Pathfinder]: trajectory check found collision with prediction horizon between %d and %d, replanning!", i, i + 1);
               ray_is_cool = false;
               break;
             }
           }
-          if (!ray_is_cool) {
-            ROS_ERROR_THROTTLE(0.1, "[Pathfinder]: trajectory check found collision with prediction horizon between %d and %d, hovering!", i, i + 1);
-            replanning_counter_++;
-            break;
-          }
         } else {
           ROS_ERROR_THROTTLE(0.1, "[Pathfinder]: trajectory check failed, could not raytrace!");
-          replanning_counter_++;
+          ray_is_cool = false;
           break;
         }
+      }
+      if (!ray_is_cool) {
+        replanning_counter_++;
+        changeState(STATE_PLANNING);
+        break;
       }
 
       ROS_INFO("[Pathfinder]: Setting replanning point");
@@ -1302,6 +1320,8 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
 
   ROS_INFO_ONCE("[Pathfinder]: future check timer spinning");
 
+  const mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerFutureCheck", ros::Duration(_scope_timer_duration_), _scope_timer_enabled_);
+
   // | ----------- check if the prediction is feasible ---------- |
 
   if (!octree_global_->getRoot()) {
@@ -1351,6 +1371,73 @@ void Pathfinder::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
       }
 
       trajectory.points.push_back(transformed_pose->reference);
+    }
+
+    // generate a set of points around the waypoint (2D/3D?)
+    // for each point, do raycasting from current waypoint to the point
+    // check for collisions
+    // if something is detected, crop the trajectory
+    for (int i = 0; i < trajectory.points.size(); i++) {
+      octomap::point3d point1(trajectory.points[i].position.x, trajectory.points[i].position.y, trajectory.points[i].position.z);
+      /* double angle_step          = M_PI / 4; */
+      double angle_step          = 2 * M_PI / _collision_check_point_count_;
+      double raycasting_distance = _safe_obstacle_distance_ - octree_global_->getResolution();
+      bool   cropped_trajectory  = false;
+      // TODO check in 3D as well??
+      for (double phi = -M_PI; phi < M_PI; phi += angle_step) {
+        octomap::point3d point_ray_end = point1 + octomap::point3d(raycasting_distance * cos(phi), raycasting_distance * sin(phi), 0);
+        octomap::KeyRay  ray;
+        if (octree_global_->computeRayKeys(point1, point_ray_end, ray)) {
+          for (octomap::KeyRay::iterator it = ray.begin(), end = ray.end(); it != end; ++it) {
+            // check if the cell is occupied in the map
+            auto node = octree_global_->search(*it);
+            if (!node) {
+              /* ROS_WARN("[Pathfinder]: Detected UNKNOWN space along the planned trajectory!"); */
+            } else if (octree_global_->isNodeOccupied(node)) {
+              /* ROS_WARN("[Pathfinder]: Detected OCCUPIED space along the planned trajectory!"); */
+              // shorten the trajectory
+              /* int min_allowed_trajectory_points = 5; */
+              int orig_traj_size = int(trajectory.points.size());
+              for (int j = int(trajectory.points.size()) - 1; j >= i - 1 && j > _min_allowed_trajectory_points_after_crop_; j--) {
+                trajectory.points.pop_back();
+              }
+
+              ROS_WARN("[Pathfinder]: Detected OCCUPIED space along the planned trajectory! Cropped the trajectory to %d from %d points.",
+                       int(trajectory.points.size()), orig_traj_size);
+
+              mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
+              srv_trajectory_reference.request.trajectory = trajectory;
+
+              bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
+
+              cropped_trajectory = true;
+
+              if (!success) {
+                ROS_ERROR("[Pathfinder]: service call for trajectory reference failed");
+                break;
+              } else {
+                if (!srv_trajectory_reference.response.success) {
+                  ROS_ERROR("[Pathfinder]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
+                  break;
+                }
+              }
+              // TODO some mutex for octree_global_?
+              break;
+            }
+            if (cropped_trajectory) {
+              break;
+            }
+          }
+        } else {
+          ROS_WARN_THROTTLE(1.0, "[Pathfinder]: Unable to raycast.");
+        }
+        if (cropped_trajectory) {
+          break;
+        }
+      }
+      if (cropped_trajectory) {
+        break;
+      }
     }
 
     // check if the trajectory is safe
