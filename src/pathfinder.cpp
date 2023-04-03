@@ -120,8 +120,8 @@ private:
   bool   _trajectory_generation_use_heading_;
   int    _collision_check_point_count_;
   int    _min_allowed_trajectory_points_after_crop_;
-  bool    _scope_timer_enabled_;
-  double    _scope_timer_duration_;
+  bool   _scope_timer_enabled_;
+  double _scope_timer_duration_;
 
   bool   _turn_in_flight_direction_;
   double _heading_offset_;
@@ -218,6 +218,7 @@ private:
   // state machine
   std::atomic<State_t> state_;
   void                 changeState(const State_t new_state);
+  std::atomic<bool>    interrupted_ = false;
 
   mrs_msgs::Reference user_goal_;
   std::mutex          mutex_user_goal_;
@@ -682,6 +683,7 @@ bool Pathfinder::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs
     }
   }
 
+  interrupted_ = false;
   changeState(STATE_PLANNING);
 
   {
@@ -751,6 +753,7 @@ bool Pathfinder::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSr
     }
   }
 
+  interrupted_ = false;
   changeState(STATE_PLANNING);
 
   {
@@ -1148,6 +1151,11 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           ROS_INFO("[Pathfinder]: cutting path in waypoint %d out of %d", i, int(waypoints.first.size()));
           break;
         }
+      }
+
+      if(interrupted_){
+        ROS_WARN("[Pathfinder]: planner interrupted, breaking main timer");
+        break;
       }
 
       ROS_INFO("[Pathfinder]: calling trajectory generation");
@@ -1564,6 +1572,11 @@ void Pathfinder::changeState(const State_t new_state) {
 
   const State_t old_state = state_;
 
+  if (interrupted_ && old_state == STATE_IDLE){
+    ROS_WARN("[Pathfinder]: Planning interrupted, not changing state.");
+    return;
+  }
+
   switch (new_state) {
 
     case STATE_PLANNING: {
@@ -1641,7 +1654,9 @@ std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const 
 
 void Pathfinder::hover(void) {
 
-  ROS_INFO("[Pathfinder]: triggering hover");
+  ROS_INFO("[Pathfinder]: triggering hover, interrupting planner");
+
+  interrupted_ = true;
 
   std_srvs::Trigger srv_out;
 
