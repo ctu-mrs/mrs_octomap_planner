@@ -112,6 +112,8 @@ private:
   bool   _subt_processing_horizontal_neighbors_only_;
   double _subt_processing_z_diff_tolerance_;
   bool   _subt_processing_fix_goal_point_;
+  double _subt_processing_path_length_;
+  double _subt_processing_timeout_;
   int    _subt_shortening_window_size_;
   int    _subt_shortening_distance_;
   double _distance_transform_distance_;
@@ -318,6 +320,8 @@ void Pathfinder::onInit() {
   param_loader.loadParam("subt_planner/postprocessing/horizontal_neighbors_only", _subt_processing_horizontal_neighbors_only_);
   param_loader.loadParam("subt_planner/postprocessing/z_diff_tolerance", _subt_processing_z_diff_tolerance_);
   param_loader.loadParam("subt_planner/postprocessing/fix_goal_point", _subt_processing_fix_goal_point_);
+  param_loader.loadParam("subt_planner/postprocessing/path_length", _subt_processing_path_length_);
+  param_loader.loadParam("subt_planner/postprocessing/timeout", _subt_processing_timeout_);
   param_loader.loadParam("subt_planner/shortening/window_size", _subt_shortening_window_size_);
   param_loader.loadParam("subt_planner/shortening/distance", _subt_shortening_distance_);
   param_loader.loadParam("collision_check_point_count", _collision_check_point_count_);
@@ -950,15 +954,15 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         // | -------------------- MRS SubT planner -------------------- |
         mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
 
-        subt_planner.initialize(true, time_for_planning, _safe_obstacle_distance_, _subt_clearing_dist_, _min_altitude_, _max_altitude_, _subt_debug_info_,
-                                bv_planner_, false);
+        subt_planner.initialize(true, time_for_planning - _subt_processing_timeout_, _subt_processing_timeout_, _safe_obstacle_distance_, _subt_clearing_dist_,
+                                _min_altitude_, _max_altitude_, _subt_debug_info_, bv_planner_, false);
         subt_planner.setAstarAdmissibility(_subt_admissibility_);
 
         ROS_INFO("[Pathfinder]: Calling find path method.");
         waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree_global_, _subt_make_path_straight_, _subt_apply_postprocessing_,
                                           _subt_bbx_horizontal_, _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
-                                          _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_shortening_window_size_,
-                                          _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_);
+                                          _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_processing_path_length_,
+                                          _subt_shortening_window_size_, _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_);
 
       } else {
 
@@ -1054,6 +1058,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       }
 
       ROS_INFO("[Pathfinder]: Calling path service with timestamp = %.3f at time %.3f.", path_stamp.toSec(), ros::Time::now().toSec());
+      ros::Time tg_start = ros::Time::now();
 
       mrs_msgs::GetPathSrv srv_get_path;
       srv_get_path.request.path.header.frame_id = octree_frame_;
@@ -1153,7 +1158,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         }
       }
 
-      if(interrupted_){
+      if (interrupted_) {
         ROS_WARN("[Pathfinder]: planner interrupted, breaking main timer");
         break;
       }
@@ -1175,6 +1180,8 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           }
         }
       }
+
+      ROS_INFO("[Pathfinder]: Trajectory generation took %.2f s", (ros::Time::now() - tg_start).toSec());
 
       {
         std::scoped_lock lock(mutex_bv_processed_);
@@ -1229,7 +1236,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       srv_trajectory_reference.request.trajectory         = srv_get_path.response.trajectory;
       srv_trajectory_reference.request.trajectory.fly_now = true;
 
-      int cb = 0;
+      /* int cb = 0; */
       /* ROS_INFO("[Pathfinder]: Mrs trajectory generation output:"); */
       /* for (auto& point : srv_get_path.response.trajectory.points) { */
       /*   ROS_INFO("[Pathfinder]: Trajectory point %02d: [%.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z); */
@@ -1572,7 +1579,7 @@ void Pathfinder::changeState(const State_t new_state) {
 
   const State_t old_state = state_;
 
-  if (interrupted_ && old_state == STATE_IDLE){
+  if (interrupted_ && old_state == STATE_IDLE) {
     ROS_WARN("[Pathfinder]: Planning interrupted, not changing state.");
     return;
   }

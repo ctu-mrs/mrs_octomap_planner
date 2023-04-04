@@ -29,7 +29,7 @@ unknown_is_occupied: true
 replan_after: 1.0 # [s]
 
 timeout_threshold: 2.0 # [s]
-time_for_trajectory_generator: 0.1 # [s]
+time_for_trajectory_generator: 0.3 # [s]
 
 # future collision check
 collision_check_point_count: 8 # [-] number of points used for future collision check of UAV trajectory, uniformly sampled on a 2D circle around each trajectory point
@@ -60,6 +60,8 @@ subt_planner:
       vertical: 30.0 # (m)
 
   postprocessing: 
+    timeout: 0.05 # (s) 
+    path_length: -1.0 # (m) length of subpath that is passed to postprocessing (set negativ number to process whole path)  
     safe_dist: 2.5 # (m)
     max_iteration: 5
     horizontal_neighbors_only: true
