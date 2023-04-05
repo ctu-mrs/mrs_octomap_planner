@@ -901,8 +901,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         break;
       }
 
-      // get the initial condition
-
+      /* get the initial condition (predicted pose of UAV at a specific time) */ /*//{*/
       double time_for_planning;
 
       if (control_manager_diag->tracker_status.have_goal) {
@@ -938,14 +937,18 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       plan_from.x() = initial_condition.value().reference.position.x;
       plan_from.y() = initial_condition.value().reference.position.y;
       plan_from.z() = initial_condition.value().reference.position.z;
+      /*//}*/
 
+      /* check if goal was reached */ /*//{*/
       if ((plan_from - user_goal_octpoint).norm() < planning_tree_resolution_) {
 
         ROS_INFO_THROTTLE(1.0, "[Pathfinder]: we reached the target");
         changeState(STATE_IDLE);
         break;
       }
+      /*//}*/
 
+      /* plan the path to goal */ /*//{*/
       std::pair<std::vector<octomap::point3d>, bool> waypoints;
       /* ros::Time                                      mct_start = ros::Time::now(); */
 
@@ -1023,6 +1026,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       diagnostics_.best_goal.x = waypoints.first.back().x();
       diagnostics_.best_goal.y = waypoints.first.back().y();
       diagnostics_.best_goal.z = waypoints.first.back().z();
+      /*//}*/
 
       {
         std::scoped_lock lock(mutex_initial_condition_);
@@ -1277,9 +1281,34 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         diagnostics_.idle = false;
       }
 
-      auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_);
+      /* std::scoped_lock lock(mutex_initial_condition_); */
+      mrs_msgs::PositionCommandConstPtr position_cmd = sh_position_cmd_.getMsg();
+      auto                              octree_frame = mrs_lib::get_mutexed(mutex_octree_global_, octree_frame_);
 
-      double dist_to_goal = (initial_pos - user_goal_octpoint).norm();
+      // transform the position cmd to the map frame
+      mrs_msgs::ReferenceStamped position_cmd_ref;
+      position_cmd_ref.header               = position_cmd->header;
+      position_cmd_ref.reference.position.x = position_cmd->position.x;
+      position_cmd_ref.reference.position.y = position_cmd->position.y;
+      position_cmd_ref.reference.position.z = position_cmd->position.z;
+      position_cmd_ref.reference.heading    = position_cmd->heading;
+
+      auto res = transformer_->transformSingle(position_cmd_ref, octree_frame);
+
+      if (!res) {
+        ROS_ERROR("[Pathfinder]: could not transform position cmd to the map frame");
+        return;
+      }
+
+      octomap::point3d position_cmd_octomap;
+      position_cmd_octomap.x() = res.value().reference.position.x;
+      position_cmd_octomap.y() = res.value().reference.position.y;
+      position_cmd_octomap.z() = res.value().reference.position.z;
+
+      /* auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_); */
+
+      /* double dist_to_goal = (initial_pos - user_goal_octpoint).norm(); */
+      double dist_to_goal = (position_cmd_octomap - user_goal_octpoint).norm();
 
       ROS_INFO_THROTTLE(1.0, "[Pathfinder]: dist to goal: %.2f m", dist_to_goal);
 
