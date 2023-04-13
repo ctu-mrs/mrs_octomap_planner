@@ -216,6 +216,7 @@ private:
   // planning
   std::atomic<int> replanning_counter_ = 0;
   ros::Time        time_last_plan_;
+  int path_id_ = 0;
 
   // state machine
   std::atomic<State_t> state_;
@@ -918,7 +919,14 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       timer.checkpoint("before getInitialCondition");
 
+      int iter = 0;
       auto initial_condition = getInitialCondition(init_cond_time);
+      while (!initial_condition && iter < 20) {
+        initial_condition = getInitialCondition(init_cond_time);
+        ROS_WARN("[Pathfinder]: Trying to get initial condition updated with the last sent path.");
+        ros::Duration(0.005).sleep();
+        iter++;
+      }
 
       timer.checkpoint("after getInitialCondition");
 
@@ -1070,7 +1078,7 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       srv_get_path.request.path.fly_now         = false;
       srv_get_path.request.path.relax_heading   = _trajectory_generation_relax_heading_;
       srv_get_path.request.path.use_heading     = _trajectory_generation_use_heading_;
-
+      
       std::vector<Eigen::Vector4d> eig_waypoints;
 
       // create an array of Eigen waypoints
@@ -1239,6 +1247,10 @@ void Pathfinder::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
       srv_trajectory_reference.request.trajectory         = srv_get_path.response.trajectory;
       srv_trajectory_reference.request.trajectory.fly_now = true;
+      
+      // set id of trajectory
+      path_id_++;
+      srv_trajectory_reference.request.trajectory.input_id = path_id_;
 
       /* int cb = 0; */
       /* ROS_INFO("[Pathfinder]: Mrs trajectory generation output:"); */
@@ -1640,6 +1652,11 @@ void Pathfinder::changeState(const State_t new_state) {
 std::optional<mrs_msgs::ReferenceStamped> Pathfinder::getInitialCondition(const ros::Time des_time) {
 
   const mrs_msgs::MpcPredictionFullStateConstPtr prediction_full_state = sh_mpc_prediction_.getMsg();
+
+  if (prediction_full_state->input_id != 0 && prediction_full_state->input_id != path_id_) {
+    ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition, the input_id (%lu) does not match id of last sent path (%d).", prediction_full_state->input_id, path_id_);
+    return {};
+  }
 
   if ((des_time - prediction_full_state->stamps.back()).toSec() > 0) {
     ROS_ERROR_THROTTLE(1.0, "[Pathfinder]: could not obtain initial condition, the desired time is too far in the future");
