@@ -28,7 +28,6 @@ set(CATKIN_DEPENDENCIES
   )
 
 set(LIBRARIES
-  MrsOctomapPlanner_MrsAstarPlanner
   MrsOctomapPlanner_OctomapPlanner
   )
 
@@ -60,27 +59,11 @@ include_directories(SYSTEM
   ${dynamicEDT3D_INCLUDE_DIRS}
   )
 
-# Astart Planner
-
-add_library(MrsOctomapPlanner_MrsAstarPlanner
-  src/astar_planner.cpp
-  )
-
-add_dependencies(MrsOctomapPlanner_MrsAstarPlanner
-  ${${PROJECT_NAME}_EXPORTED_TARGETS}
-  ${catkin_EXPORTED_TARGETS}
-  )
-
-target_link_libraries(MrsOctomapPlanner_MrsAstarPlanner
-  ${catkin_LIBRARIES}
-  ${OCTOMAP_LIBRARIES}
-  ${DYNAMICEDT3D_LIBRARIES}
-  )
-
 # Octomap Planner
 
 add_library(MrsOctomapPlanner_OctomapPlanner
   src/octomap_planner.cpp
+  src/astar_planner.cpp
   )
 
 add_dependencies(MrsOctomapPlanner_OctomapPlanner

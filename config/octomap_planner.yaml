@@ -43,6 +43,7 @@ trajectory_generator:
   max_segment_length_heading: 1.0 # [m] maximum length of segment for heading sampling
 
 subt_planner:
+
   use: true
   apply_postprocessing: false
   make_path_straight: true # cannot be applied if postprocessing is active
