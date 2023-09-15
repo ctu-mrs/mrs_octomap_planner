@@ -1,25 +1,40 @@
-cmake_minimum_required(VERSION 3.1.2)
-project(pathfinder)
+cmake_minimum_required(VERSION 3.16)
+project(mrs_octomap_planner)
 
-add_definitions("-DOCTOMAP_NODEBUGOUT")
-
-find_package(catkin REQUIRED
-  roscpp
-  cmake_modules
-  nodelet
-  mrs_lib
-  std_msgs
-  nav_msgs
-  mrs_msgs
-  octomap_ros
-  octomap_msgs
-  mrs_subt_planning_lib
-  )
+add_definitions(-DOCTOMAP_NODEBUGOUT)
+add_definitions(-O3)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+# disables anoying googletest warning
+set(CATKIN_ENABLE_TESTING FALSE)
+
+# disables anoying PCL warnings
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE INTERNAL "No dev warnings")
+
+set(CATKIN_DEPENDENCIES
+  cmake_modules
+  mrs_lib
+  mrs_msgs
+  mrs_subt_planning_lib
+  nav_msgs
+  nodelet
+  octomap_msgs
+  octomap_ros
+  roscpp
+  rospy
+  std_msgs
+  )
+
+set(LIBRARIES
+  MrsOctomapPlanner_MrsAstarPlanner
+  MrsOctomapPlanner_OctomapPlanner
+  )
+
+find_package(catkin REQUIRED
+  ${CATKIN_DEPENDENCIES}
+  )
 
 find_package(octomap REQUIRED)
 add_definitions(-DOCTOMAP_NODEBUGOUT)
@@ -33,49 +48,66 @@ set(Eigen_LIBRARIES ${Eigen_LIBRARIES})
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp nodelet mrs_lib std_msgs nav_msgs mrs_msgs mrs_subt_planning_lib
-  LIBRARIES Pathfinder MrsAstarPlanner
+  CATKIN_DEPENDS ${CATKIN_DEPENDENCIES}
+  LIBRARIES ${LIBRARIES}
   DEPENDS OCTOMAP
   )
 
-include_directories(
+include_directories(SYSTEM
   include
   ${catkin_INCLUDE_DIRS}
   ${OCTOMAP_INCLUDE_DIRS}
   ${dynamicEDT3D_INCLUDE_DIRS}
   )
 
-# astar planner
+# Astart Planner
 
-add_library(MrsAstarPlanner
+add_library(MrsOctomapPlanner_MrsAstarPlanner
   src/astar_planner.cpp
   )
 
-add_dependencies(MrsAstarPlanner
+add_dependencies(MrsOctomapPlanner_MrsAstarPlanner
   ${${PROJECT_NAME}_EXPORTED_TARGETS}
   ${catkin_EXPORTED_TARGETS}
   )
 
-target_link_libraries(MrsAstarPlanner
+target_link_libraries(MrsOctomapPlanner_MrsAstarPlanner
   ${catkin_LIBRARIES}
   ${OCTOMAP_LIBRARIES}
   ${DYNAMICEDT3D_LIBRARIES}
   )
 
-# pathfinder
+# Octomap Planner
 
-add_library(Pathfinder
-  src/pathfinder.cpp
+add_library(MrsOctomapPlanner_OctomapPlanner
+  src/octomap_planner.cpp
   )
 
-add_dependencies(Pathfinder
+add_dependencies(MrsOctomapPlanner_OctomapPlanner
   ${${PROJECT_NAME}_EXPORTED_TARGETS}
   ${catkin_EXPORTED_TARGETS}
   )
 
-target_link_libraries(Pathfinder
-  MrsAstarPlanner
+target_link_libraries(MrsOctomapPlanner_OctomapPlanner
   ${catkin_LIBRARIES}
   ${OCTOMAP_LIBRARIES}
   ${DYNAMICEDT3D_LIBRARIES}
+  )
+
+## --------------------------------------------------------------
+## |                           Install                          |
+## --------------------------------------------------------------
+
+install(TARGETS ${LIBRARIES}
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+  )
+
+install(DIRECTORY launch config
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+  )
+
+install(FILES nodelets.xml
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
   )

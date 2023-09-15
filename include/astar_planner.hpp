@@ -1,5 +1,5 @@
-#ifndef PATHFINDER_ASTAR_PLANNER_H
-#define PATHFINDER_ASTAR_PLANNER_H
+#ifndef ASTAR_PLANNER_H
+#define ASTAR_PLANNER_H
 
 #include <memory>
 #include <set>
@@ -12,7 +12,7 @@
 
 #include <mrs_lib/batch_visualizer.h>
 
-namespace pathfinder
+namespace mrs_octomap_planner
 {
 
 enum TreeValue
@@ -125,6 +125,6 @@ private:
                                        unsigned int max_depth = 0);
 };
 
-}  // namespace pathfinder
+}  // namespace mrs_octomap_planner
 
 #endif

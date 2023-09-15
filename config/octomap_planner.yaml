@@ -1,4 +1,3 @@
-
 planning_tree:
   resolution: 0.4
 
@@ -29,7 +28,7 @@ unknown_is_occupied: true
 replan_after: 1.0 # [s]
 
 timeout_threshold: 2.0 # [s]
-time_for_trajectory_generator: 0.3 # [s]
+time_for_trajectory_generator: 0.6 # [s]
 
 # future collision check
 collision_check_point_count: 8 # [-] number of points used for future collision check of UAV trajectory, uniformly sampled on a 2D circle around each trajectory point

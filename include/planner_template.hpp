@@ -1,10 +1,10 @@
-#ifndef PATHFINDER_PLANNER_TEMPLATE_H
-#define PATHFINDER_PLANNER_TEMPLATE_H
+#ifndef PLANNER_TEMPLATE_H
+#define PLANNER_TEMPLATE_H
 
 #include <octomap/octomap.h>
 #include <mrs_lib/batch_visualizer.h>
 
-namespace pathfinder
+namespace mrs_octomap_planner
 {
 
 enum TreeValue
@@ -27,6 +27,6 @@ protected:
   mrs_lib::BatchVisualizer bv_;
 };
 
-}  // namespace pathfinder
+}  // namespace mrs_octomap_planner
 
 #endif

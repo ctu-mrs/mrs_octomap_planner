@@ -1,5 +1,5 @@
-<library path="lib/libPathfinder">
-  <class name="pathfinder/Pathfinder" type="pathfinder::Pathfinder" base_class_type="nodelet::Nodelet">
-    <description>Pathfinder nodelet</description>
+<library path="lib/libMrsOctomapPlanner_OctomapPlanner">
+  <class name="mrs_octomap_planner/OctomapPlanner" type="mrs_octomap_planner::OctomapPlanner" base_class_type="nodelet::Nodelet">
+    <description>MRS Octomap Planner nodelet</description>
   </class>
 </library>

@@ -3,7 +3,7 @@
   <arg name="UAV_NAME" default="$(env UAV_NAME)" />
   <arg name="LOGGER_DEBUG" default="$(optenv LOGGER_DEBUG false)" />
 
-  <env name="ROSCONSOLE_CONFIG_FILE" if="$(eval arg('LOGGER_DEBUG'))" value="$(find pathfinder)/config/debug_verbosity.yaml" />
+  <env name="ROSCONSOLE_CONFIG_FILE" if="$(eval arg('LOGGER_DEBUG'))" value="$(find mrs_octomap_planner)/config/debug_verbosity.yaml" />
 
     <!-- other args -->
   <arg name="debug" default="false" />
@@ -21,9 +21,9 @@
 
   <group ns="$(arg UAV_NAME)">
 
-    <node pkg="nodelet" type="nodelet" name="pathfinder" args="$(arg nodelet) pathfinder/Pathfinder $(arg nodelet_manager)" output="screen" launch-prefix="$(arg launch_prefix)">
+    <node pkg="nodelet" type="nodelet" name="octomap_planner" args="$(arg nodelet) mrs_octomap_planner/OctomapPlanner $(arg nodelet_manager)" output="screen" launch-prefix="$(arg launch_prefix)">
 
-      <rosparam file="$(find pathfinder)/config/pathfinder.yaml" command="load" />
+      <rosparam file="$(find mrs_octomap_planner)/config/octomap_planner.yaml" command="load" />
 
       <rosparam if="$(eval not arg('custom_config') == '')" file="$(arg custom_config)" />
 
@@ -31,9 +31,8 @@
 
       <!-- topics in -->
 
-      <remap from="~position_cmd_in" to="control_manager/position_cmd" />
+      <remap from="~tracker_cmd_in" to="control_manager/tracker_cmd" />
       <remap from="~octomap_in" to="octomap_server/octomap_local_full" />
-      <remap from="~mpc_prediction_in" to="control_manager/mpc_tracker/prediction_full_state" />
       <remap from="~control_manager_diag_in" to="control_manager/diagnostics" />
       <remap from="~constraints_in" to="control_manager/current_constraints" />
 

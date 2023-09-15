@@ -1,6 +1,6 @@
-#include <pathfinder/astar_planner.hpp>
+#include <astar_planner.hpp>
 
-namespace pathfinder
+namespace mrs_octomap_planner
 {
 
 bool Node::operator==(const Node &other) const {
@@ -469,7 +469,8 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
     counter++;
   }
 
-  /* ROS_ERROR("[%s]: Number of leafs in bbx = %d, free =%d, occupied=%d, resampled tree size = %lu.", ros::this_node::getName().c_str(), counter, counter_free, counter_occ, resampled_tree->size()); */
+  /* ROS_ERROR("[%s]: Number of leafs in bbx = %d, free =%d, occupied=%d, resampled tree size = %lu.", ros::this_node::getName().c_str(), counter, counter_free,
+   * counter_occ, resampled_tree->size()); */
 
   resampled_tree->expand();
 
@@ -484,7 +485,8 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
     }
   }
 
-  /* ROS_ERROR("[%s]: Resampled tree size after expand = %lu, free = %d, occupied = %d.", ros::this_node::getName().c_str(), resampled_tree->size(), counter_free, counter_occ); */
+  /* ROS_ERROR("[%s]: Resampled tree size after expand = %lu, free = %d, occupied = %d.", ros::this_node::getName().c_str(), resampled_tree->size(),
+   * counter_free, counter_occ); */
 
   /* ROS_ERROR("[%s]: Orig coord = [%.2f, %.2f, %.2f].", ros::this_node::getName().c_str(), orig_coord.x(), orig_coord.y(), orig_coord.z()); */
   auto edf = euclideanDistanceTransform(resampled_tree, orig_coord, radius);
@@ -496,16 +498,17 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   counter = counter_free = counter_occ = 0;
   for (auto it = resampled_tree->begin(); it != resampled_tree->end(); it++) {
     if (edf.getDistance(it.getCoordinate()) <= safe_obstacle_distance) {
-      binary_tree->setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED); // occupied
+      binary_tree->setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED);  // occupied
       counter_occ++;
     } else {
       counter_free++;
-      binary_tree->setNodeValue(it.getCoordinate(), TreeValue::FREE); // free and safe
+      binary_tree->setNodeValue(it.getCoordinate(), TreeValue::FREE);  // free and safe
     }
     counter++;
   }
 
-  /* ROS_ERROR("[%s]: Number of set node values based on edf = %d, free = %d, occupied = %d", ros::this_node::getName().c_str(), counter, counter_free, counter_occ); */
+  /* ROS_ERROR("[%s]: Number of set node values based on edf = %d, free = %d, occupied = %d", ros::this_node::getName().c_str(), counter, counter_free,
+   * counter_occ); */
 
   std::vector<octomap::point3d> tunnel;
 
@@ -841,4 +844,4 @@ octomap::OcTreeNode *AstarPlanner::touchNodeRecurs(std::shared_ptr<octomap::OcTr
 
 //}
 
-}  // namespace pathfinder
+}  // namespace mrs_octomap_planner

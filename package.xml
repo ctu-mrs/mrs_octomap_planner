@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <package format="2">
 
-  <name>pathfinder</name>
+  <name>mrs_octomap_planner</name>
   <version>1.0.0</version>
-  <description>The pathfinder package</description>
+  <description>The Octomap Planner package</description>
 
   <maintainer email="stibipet@fel.cvut.cz">Petr Stibinger</maintainer>
   <maintainer email="tomas.baca@fel.cvut.cz">Tomas Baca</maintainer>
@@ -12,15 +12,18 @@
 
   <buildtool_depend>catkin</buildtool_depend>
 
-  <depend>roscpp</depend>
-  <depend>nodelet</depend>
-  <depend>std_msgs</depend>
-  <depend>nav_msgs</depend>
+  <depend>cmake_modules</depend>
   <depend>mrs_lib</depend>
   <depend>mrs_msgs</depend>
+  <depend>mrs_subt_planning_lib</depend>
+  <depend>nav_msgs</depend>
+  <depend>nodelet</depend>
   <depend>octomap_msgs</depend>
   <depend>octomap_ros</depend>
-  <depend>mrs_subt_planning_lib</depend>
+  <depend>roscpp</depend>
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>dynamic_edt_3d</depend>
 
   <export>
     <nodelet plugin="${prefix}/nodelets.xml" />
