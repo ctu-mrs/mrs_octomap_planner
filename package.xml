@@ -15,6 +15,7 @@
   <depend>cmake_modules</depend>
   <depend>mrs_lib</depend>
   <depend>mrs_msgs</depend>
+  <depend>mrs_modules_msgs</depend>
   <depend>mrs_subt_planning_lib</depend>
   <depend>nav_msgs</depend>
   <depend>nodelet</depend>

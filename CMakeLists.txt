@@ -17,6 +17,7 @@ set(CATKIN_DEPENDENCIES
   cmake_modules
   mrs_lib
   mrs_msgs
+  mrs_modules_msgs
   mrs_subt_planning_lib
   nav_msgs
   nodelet

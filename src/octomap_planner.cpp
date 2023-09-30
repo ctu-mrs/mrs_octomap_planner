@@ -38,7 +38,8 @@
 #include <mrs_msgs/ControlManagerDiagnostics.h>
 #include <mrs_msgs/DynamicsConstraints.h>
 #include <mrs_msgs/TrajectoryReference.h>
-#include <mrs_msgs/PathfinderDiagnostics.h>
+
+#include <mrs_modules_msgs/OctomapPlannerDiagnostics.h>
 
 #include <std_srvs/Trigger.h>
 
@@ -196,7 +197,7 @@ private:
   void       timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt);
 
   // diagnostics
-  mrs_msgs::PathfinderDiagnostics diagnostics_;
+  mrs_modules_msgs::OctomapPlannerDiagnostics diagnostics_;
   std::mutex                      mutex_diagnostics_;
 
   // timeouts
@@ -340,7 +341,7 @@ void OctomapPlanner::onInit() {
 
   // | ----------------------- publishers ----------------------- |
 
-  pub_diagnostics_ = nh_.advertise<mrs_msgs::PathfinderDiagnostics>("diagnostics_out", 1);
+  pub_diagnostics_ = nh_.advertise<mrs_modules_msgs::OctomapPlannerDiagnostics>("diagnostics_out", 1);
 
   // | ----------------------- subscribers ---------------------- |
 
