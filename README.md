@@ -1,9 +1,5 @@
-# Pathfinder
+# MRS Octomap Planner
 
-TODO
-
-## Install depenedencies
-
-```bash
-sudo apt install ros-noetic-octomap-ros ros-noetic-dynamic-edt-3d
-````
+> :warning: **Attention please: This README is outdated.**
+>
+> The MRS UAV System 1.5 is being released and this page needs updating. Please, keep in mind that the information on this page might not be valid.
