@@ -1610,6 +1610,11 @@ std::optional<mrs_msgs::ReferenceStamped> OctomapPlanner::getInitialCondition(co
     return {};
   }
 
+  if (prediction_full_state.stamps.size() == 0){
+    ROS_ERROR_THROTTLE(1.0, "[MrsOctomapPLanner]: Could not obtain initial condition, prediction full state is empty.");
+    return {};
+  }
+
   if ((des_time - prediction_full_state.stamps.back()).toSec() > 0) {
     ROS_ERROR_THROTTLE(1.0, "[MrsOctomapPlanner]: could not obtain initial condition, the desired time is too far in the future");
     return {};
