@@ -1043,7 +1043,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         eig_waypoint[0] = w.x();
         eig_waypoint[1] = w.y();
         eig_waypoint[2] = w.z();
-        eig_waypoint[4] = user_goal.heading;
+        eig_waypoint[3] = user_goal.heading;
 
         eig_waypoints.push_back(eig_waypoint);
       }
@@ -1225,7 +1225,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           break;
         } else {
           if (!srv_trajectory_reference.response.success) {
-            ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", srv_get_path.response.message.c_str());
+            ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
             break;
           } else {
           }
