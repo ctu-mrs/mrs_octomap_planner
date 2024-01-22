@@ -10,27 +10,27 @@ main_timer:
 diagnostics_timer:
   rate: 10.0 # [Hz]
 
-future_check_timer:
-  rate: 10.0 # [Hz]
-
-euclidean_distance_cutoff: 1.0 # [m]
+euclidean_distance_cutoff: 1.0 # [m] maximum distance for Euclidean distance field
 safe_obstacle_distance: 1.0 # [m]
 
-min_path_length: 0.2 # [m]
+min_path_length: 0.2 # [m] minimum length of path to be published
 
-distance_penalty: 1.0
-greedy_penalty: 1.0
+distance_penalty: 1.0 # coefficient for traveled distance from start in A* cost function
+greedy_penalty: 1.0 # coefficient for estimated distance to goal in A* cost function
 
 max_waypoint_distance: 0.0 # [m] // or set negative for no padding
 min_altitude: -1000.0 # [m]
 max_altitude: 1000.0 # [m]
-unknown_is_occupied: true
-replan_after: 1.0 # [s]
+unknown_is_occupied: true # if false, planning through unknown space is enabled 
+replan_after: 1.0 # [s] time from last planning after which replanning is triggered
 
-timeout_threshold: 2.0 # [s]
+timeout_threshold: 2.0 # [s] time after which A* planning is aborted and returns path to the node with the so far lowest cost   
 time_for_trajectory_generator: 0.6 # [s]
 
 # future collision check
+future_check_timer: # timer for collision checking with most recent map 
+  rate: 10.0 # [Hz]
+
 collision_check_point_count: 8 # [-] number of points used for future collision check of UAV trajectory, uniformly sampled on a 2D circle around each trajectory point
 min_allowed_trajectory_points_after_crop: 10 # [-] when future trajectory approaches an obstacle, it can be cropped up to this number of points
 
@@ -43,39 +43,38 @@ trajectory_generator:
   max_segment_length_heading: 1.0 # [m] maximum length of segment for heading sampling
 
 subt_planner:
-
-  use: true
+  use: false
   apply_postprocessing: false
   make_path_straight: true # cannot be applied if postprocessing is active
   debug_info: false
   clearing_dist: 0.15 # [m] clear occupied and unknown space up to this distance from the starting position, might cause collision if greater than min_path_length
-  admissibility: 1.0 # allows paths of length up to (admissibility * optimum length)
+  admissibility: 1.0 # allows paths of length up to (admissibility * optimum length), speeds up the planning
 
   apply_pruning: true
   pruning_dist: 0.6
 
   planning_tree:
     bounding_box:
-      horizontal: 60.0 # (m)
-      vertical: 30.0 # (m)
+      horizontal: 60.0 # [m]
+      vertical: 30.0 # [m]
 
   postprocessing:
-    timeout: 0.05 # (s)
-    path_length: -1.0 # (m) length of subpath that is passed to postprocessing (set negativ number to process whole path)
-    safe_dist: 2.5 # (m)
+    timeout: 0.05 # [s]
+    path_length: -1.0 # [m] length of subpath that is passed to postprocessing (set negativ number to process whole path)
+    safe_dist: 2.5 # [m]
     max_iteration: 5
     horizontal_neighbors_only: true
-    z_diff_tolerance: 0.5 # (m)
+    z_diff_tolerance: 0.5 # [m]
     fix_goal_point: true
 
   shortening:
     window_size: 20
-    distance: 1.0 # (m)
+    distance: 1.0 # [m]
 
 # visualization
 points_scale: 0.05
 lines_scale: 0.02
 
 scope_timer:
-  enable: false # enable scope timer for measuring processing time?
+  enable: false # enable scope timer for measuring processing time
   duration: 0.1 # [s] scope timer output is throttled to this period

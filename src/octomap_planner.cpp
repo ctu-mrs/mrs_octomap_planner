@@ -198,7 +198,7 @@ private:
 
   // diagnostics
   mrs_modules_msgs::OctomapPlannerDiagnostics diagnostics_;
-  std::mutex                      mutex_diagnostics_;
+  std::mutex                                  mutex_diagnostics_;
 
   // timeouts
   void timeoutOctomap(const std::string& topic, const ros::Time& last_msg);
@@ -257,8 +257,6 @@ private:
 
   octomap::OcTreeNode* touchNodeRecurs(std::shared_ptr<OcTree_t>& octree, octomap::OcTreeNode* node, const octomap::OcTreeKey& key, unsigned int depth,
                                        unsigned int max_depth);
-
-  /* std::shared_ptr<octomap::OcTree> convertOcTreeToBinary(std::shared_ptr<octomap::OcTree> tree, double resolution, double fractor); */
 
   void hover(void);
 };
@@ -768,7 +766,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
     return;
   }
 
-  /* prerequsitioes //{ */
+  /* prerequsities //{ */
 
   const bool got_octomap              = sh_octomap_.hasMsg() && (ros::Time::now() - sh_octomap_.lastMsgTime()).toSec() < 2.0;
   const bool got_tracker_cmd          = sh_tracker_cmd_.hasMsg() && (ros::Time::now() - sh_tracker_cmd_.lastMsgTime()).toSec() < 2.0;
@@ -1227,8 +1225,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           if (!srv_trajectory_reference.response.success) {
             ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
             break;
-          } else {
-          }
+          }  
         }
       }
 
@@ -1385,11 +1382,12 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
     // check for collisions
     // if something is detected, crop the trajectory
     for (int i = 0; i < trajectory.points.size(); i++) {
+
       octomap::point3d point1(trajectory.points[i].position.x, trajectory.points[i].position.y, trajectory.points[i].position.z);
-      /* double angle_step          = M_PI / 4; */
-      double angle_step          = 2 * M_PI / _collision_check_point_count_;
-      double raycasting_distance = _safe_obstacle_distance_ - octree_global_->getResolution();
-      bool   cropped_trajectory  = false;
+      double           angle_step          = 2 * M_PI / _collision_check_point_count_;
+      double           raycasting_distance = _safe_obstacle_distance_ - octree_global_->getResolution();
+      bool             cropped_trajectory  = false;
+
       // TODO check in 3D as well??
       for (double phi = -M_PI; phi < M_PI; phi += angle_step) {
         octomap::point3d point_ray_end = point1 + octomap::point3d(raycasting_distance * cos(phi), raycasting_distance * sin(phi), 0);
@@ -1403,7 +1401,6 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
             } else if (octree_global_->isNodeOccupied(node)) {
               /* ROS_WARN("[MrsOctomapPlanner]: Detected OCCUPIED space along the planned trajectory!"); */
               // shorten the trajectory
-              /* int min_allowed_trajectory_points = 5; */
               int orig_traj_size = int(trajectory.points.size());
               for (int j = int(trajectory.points.size()) - 1; j >= i - 1 && j > _min_allowed_trajectory_points_after_crop_; j--) {
                 trajectory.points.pop_back();
@@ -1470,27 +1467,6 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
         if (!ray_is_cool) {
 
           ROS_ERROR_THROTTLE(0.1, "[MrsOctomapPlanner]: future check found collision with prediction horizon between %d and %d, hovering!", i, i + 1);
-          // TODO try to do raycasting along the vector between two points of the trajectory up to a certain safety distance?
-
-          /* // shorten the trajectory */
-          /* for (int j = int(trajectory.points.size()) - 1; j >= floor(i / 2.0); j--) { */
-          /*   trajectory.points.pop_back(); */
-          /* } */
-
-          /* mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference; */
-          /* srv_trajectory_reference.request.trajectory = trajectory; */
-
-          /* bool success = sc_trajectory_reference_.call(srv_trajectory_reference); */
-
-          /* if (!success) { */
-          /*   ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed"); */
-          /*   break; */
-          /* } else { */
-          /*   if (!srv_trajectory_reference.response.success) { */
-          /*     ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str()); */
-          /*     break; */
-          /*   } */
-          /* } */
 
           // the trajectory directly passes through an obstacle, trigger hovering
           changeState(STATE_IDLE);
@@ -1610,7 +1586,7 @@ std::optional<mrs_msgs::ReferenceStamped> OctomapPlanner::getInitialCondition(co
     return {};
   }
 
-  if (prediction_full_state.stamps.size() == 0){
+  if (prediction_full_state.stamps.size() == 0) {
     ROS_ERROR_THROTTLE(1.0, "[MrsOctomapPLanner]: Could not obtain initial condition, prediction full state is empty.");
     return {};
   }
@@ -1643,10 +1619,10 @@ std::optional<mrs_msgs::ReferenceStamped> OctomapPlanner::getInitialCondition(co
 
   if (result) {
 
-    mrs_msgs::ReferenceStamped transfomed_reference = result.value();
-    transfomed_reference.header.stamp               = future_time_stamp;
+    mrs_msgs::ReferenceStamped transformed_reference = result.value();
+    transformed_reference.header.stamp               = future_time_stamp;
 
-    return transfomed_reference;
+    return transformed_reference;
 
   } else {
 
@@ -1953,67 +1929,6 @@ octomap::OcTreeNode* OctomapPlanner::touchNodeRecurs(std::shared_ptr<OcTree_t>& 
     return node;
   }
 }
-
-//}
-
-/* convertOcTreeToBinary() //{ */
-
-/* std::shared_ptr<octomap::OcTree> OctomapPlanner::convertOcTreeToBinary(std::shared_ptr<octomap::OcTree> tree, double resolution, double fractor) { */
-
-/*   /1* resample the incoming map to the desired resolution //{ *1/ */
-
-/*   std::shared_ptr<octomap::OcTree> resampled_tree = std::make_shared<octomap::OcTree>(resolution); */
-/*   resampled_tree->setOccupancyThres(tree->getOccupancyThres()); */
-/*   resampled_tree->setProbHit(tree->getProbHit()); */
-/*   resampled_tree->setProbMiss(tree->getProbMiss()); */
-/*   resampled_tree->setClampingThresMax(tree->getClampingThresMax()); */
-/*   resampled_tree->setClampingThresMin(tree->getClampingThresMin()); */
-
-/*   octomap::OcTreeKey key = resampled_tree->coordToKey(0, 0, 0, resampled_tree->getTreeDepth()); */
-/*   resampled_tree->setNodeValue(key, 0.0); */
-
-/*   for (octomap::OcTree::leaf_iterator it = tree->begin_leafs(tree->getTreeDepth() - fractor), end = tree->end_leafs(); it != end; ++it) { */
-
-/*     octomap::OcTreeNode* orig_node = it.getNode(); */
-
-/*     tree->eatChildren(orig_node); */
-
-/*     auto orig_key = it.getKey(); */
-
-/*     const unsigned int old_depth = it.getDepth(); */
-/*     const unsigned int new_depth = old_depth + fractor; */
-
-/*     auto new_key = resampled_tree->coordToKey(it.getX(), it.getY(), it.getZ()); */
-
-/*     octomap::OcTreeNode* new_node = touchNode(resampled_tree, new_key, new_depth); */
-
-/*     if (tree->isNodeOccupied(orig_node)) { */
-/*       new_node->setLogOdds(1.0); */
-/*     } else { */
-/*       new_node->setLogOdds(-1.0); */
-/*     } */
-/*   } */
-
-/*   resampled_tree->expand(); */
-
-/*   /1* auto edf = euclideanDistanceTransform(resampled_tree, orig_coord, radius); *1/ */
-
-/*   //} */
-
-/*   std::shared_ptr<octomap::OcTree> binary_tree = std::make_shared<octomap::OcTree>(resolution); */
-/*   for (auto it = resampled_tree->begin(); it != resampled_tree->end(); it++) { */
-/*     octomap::OcTreeKey oc_key = resampled_tree->coordToKey(it.getCoordinate()); */
-/*     if (resampled_tree->search(oc_key) != NULL) { */
-/*       if (resampled_tree->isNodeOccupied(resampled_tree->search(oc_key))) { */
-/*         binary_tree->setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED);  // free and safe */
-/*       } else { */
-/*         binary_tree->setNodeValue(it.getCoordinate(), TreeValue::FREE);  // free and safe */
-/*       } */
-/*     } */
-/*   } */
-
-/*   return binary_tree; */
-/* } */
 
 //}
 
