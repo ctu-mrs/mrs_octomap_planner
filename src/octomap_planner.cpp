@@ -164,6 +164,7 @@ private:
 
   // publishers
   ros::Publisher pub_diagnostics_;
+  ros::Publisher pub_path_;
 
   // subscriber callbacks
   void callbackTrackerCmd(const mrs_msgs::TrackerCommand::ConstPtr msg);
@@ -340,6 +341,7 @@ void OctomapPlanner::onInit() {
   // | ----------------------- publishers ----------------------- |
 
   pub_diagnostics_ = nh_.advertise<mrs_modules_msgs::OctomapPlannerDiagnostics>("diagnostics_out", 1);
+  pub_path_        = nh_.advertise<mrs_msgs::Path>("path_msg_out", 1);
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -1132,6 +1134,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       timer.checkpoint("calling trajectory generation");
 
+      pub_path_.publish(srv_get_path.request.path);
+
       {
         bool success = sc_get_trajectory_.call(srv_get_path);
 
@@ -1225,7 +1229,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           if (!srv_trajectory_reference.response.success) {
             ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
             break;
-          }  
+          }
         }
       }
 
