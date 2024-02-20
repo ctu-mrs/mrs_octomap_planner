@@ -117,6 +117,8 @@ private:
   double _subt_processing_timeout_;
   int    _subt_shortening_window_size_;
   int    _subt_shortening_distance_;
+  bool   _subt_remove_obsolete_points_;
+  double _subt_obsolete_points_tolerance_;
   double _distance_transform_distance_;
   double _trajectory_generation_input_length_;
   bool   _trajectory_generation_relax_heading_;
@@ -322,6 +324,8 @@ void OctomapPlanner::onInit() {
   param_loader.loadParam("subt_planner/postprocessing/timeout", _subt_processing_timeout_);
   param_loader.loadParam("subt_planner/shortening/window_size", _subt_shortening_window_size_);
   param_loader.loadParam("subt_planner/shortening/distance", _subt_shortening_distance_);
+  param_loader.loadParam("subt_planner/remove_obsolete_points", _subt_remove_obsolete_points_);
+  param_loader.loadParam("subt_planner/obsolete_points_tolerance", _subt_obsolete_points_tolerance_);
   param_loader.loadParam("collision_check_point_count", _collision_check_point_count_);
   param_loader.loadParam("min_allowed_trajectory_points_after_crop", _min_allowed_trajectory_points_after_crop_);
   param_loader.loadParam("scope_timer/enable", _scope_timer_enabled_);
@@ -928,7 +932,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree_global_, _subt_make_path_straight_, _subt_apply_postprocessing_,
                                           _subt_bbx_horizontal_, _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
                                           _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_processing_path_length_,
-                                          _subt_shortening_window_size_, _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_);
+                                          _subt_shortening_window_size_, _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_, false, 2.0,
+                                          _subt_remove_obsolete_points_, _subt_obsolete_points_tolerance_);
 
       } else {
 
