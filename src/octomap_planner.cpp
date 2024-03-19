@@ -404,7 +404,7 @@ void OctomapPlanner::onInit() {
   // | ------------------------- timers ------------------------- |
 
   timer_main_         = nh_.createTimer(ros::Rate(_rate_main_timer_), &OctomapPlanner::timerMain, this);
-  timer_future_check_ = nh_.createTimer(ros::Rate(_rate_future_check_timer_), &OctomapPlanner::timerFutureCheck, this);
+  /* timer_future_check_ = nh_.createTimer(ros::Rate(_rate_future_check_timer_), &OctomapPlanner::timerFutureCheck, this); */
   timer_diagnostics_  = nh_.createTimer(ros::Rate(_rate_diagnostics_timer_), &OctomapPlanner::timerDiagnostics, this);
 
 
