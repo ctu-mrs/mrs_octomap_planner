@@ -7,6 +7,7 @@
 #include <nodelet/nodelet.h>
 
 #include <octomap/OcTree.h>
+#include <mrs_octomap_tools/octomap_methods.h>
 
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
@@ -136,8 +137,8 @@ private:
 
   std::string octree_frame_;
 
-  std::shared_ptr<OcTree_t> octree_global_;
-  std::mutex                mutex_octree_global_;
+  std::shared_ptr<OcTree_t> octree_;
+  std::mutex                mutex_octree_;
 
   // visualizer params
   double _points_scale_;
@@ -335,7 +336,7 @@ void OctomapPlanner::onInit() {
     ros::shutdown();
   }
 
-  octree_global_ = nullptr;
+  octree_ = nullptr;
 
   // | ---------------------- state machine --------------------- |
 
@@ -474,15 +475,12 @@ void OctomapPlanner::callbackOctomap(const octomap_msgs::Octomap::ConstPtr msg) 
   }
 
   {
-    std::scoped_lock lock(mutex_octree_global_);
+    std::scoped_lock lock(mutex_octree_);
 
-    if (octree_global_ == nullptr) {
-      double resolution = octree_local->get()->getResolution();
-      ROS_INFO("[MrsOctomapPlanner]: Creating global octree with resolution %.3f", resolution);
-      octree_global_ = std::make_shared<OcTree_t>(resolution);
-    }
+    /* copyLocalMap(*octree_local, octree_global_); */
 
-    copyLocalMap(*octree_local, octree_global_);
+    octree_ = octree_local.value();
+
     octree_frame_ = msg->header.frame_id;
   }
 
@@ -795,6 +793,14 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
   const mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
   const mrs_msgs::TrackerCommandConstPtr            tracker_cmd          = sh_tracker_cmd_.getMsg();
 
+  std::shared_ptr<OcTree_t> octree;
+
+  {
+    std::scoped_lock lock(mutex_octree_);
+
+    octree = std::make_shared<OcTree_t>(*octree_);
+  }
+
   octomap::point3d user_goal_octpoint;
   user_goal_octpoint.x() = user_goal.position.x;
   user_goal_octpoint.y() = user_goal.position.y;
@@ -835,7 +841,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerMain - STATE_PLANNING", ros::Duration(_scope_timer_duration_), _scope_timer_enabled_);
 
-      if (!octree_global_->getRoot()) {
+      if (!octree->getRoot()) {
 
         ROS_ERROR("[MrsOctomapPlanner]: don't have a map");
 
@@ -878,7 +884,9 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       int  iter              = 0;
       auto initial_condition = getInitialCondition(init_cond_time);
+
       while (!initial_condition && iter < 20) {
+
         initial_condition = getInitialCondition(init_cond_time);
         ROS_WARN("[MrsOctomapPlanner]: Trying to get initial condition updated with the last sent path.");
         ros::Duration(0.005).sleep();
@@ -927,8 +935,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         subt_planner.setAstarAdmissibility(_subt_admissibility_);
 
         ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
-        waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree_global_, _subt_make_path_straight_, _subt_apply_postprocessing_,
-                                          _subt_bbx_horizontal_, _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
+        waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree, _subt_make_path_straight_, _subt_apply_postprocessing_, _subt_bbx_horizontal_,
+                                          _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
                                           _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_processing_path_length_,
                                           _subt_shortening_window_size_, _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_, false, 2.0,
                                           _subt_remove_obsolete_points_, _subt_obsolete_points_tolerance_);
@@ -941,7 +949,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
             _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
         ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
-        waypoints = planner.findPath(plan_from, user_goal_octpoint, octree_global_, time_for_planning);
+        waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
       }
 
       timer.checkpoint("after findPath()");
@@ -998,7 +1006,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         std::scoped_lock lock(mutex_initial_condition_);
 
         mrs_msgs::TrackerCommandConstPtr tracker_cmd  = sh_tracker_cmd_.getMsg();
-        auto                             octree_frame = mrs_lib::get_mutexed(mutex_octree_global_, octree_frame_);
+        auto                             octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
 
         // transform the position cmd to the map frame
         mrs_msgs::ReferenceStamped position_cmd_ref;
@@ -1175,10 +1183,10 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         octomap::KeyRay key_ray;
 
-        if (octree_global_->computeRayKeys(point1, point2, key_ray)) {
+        if (octree->computeRayKeys(point1, point2, key_ray)) {
           for (octomap::KeyRay::iterator it1 = key_ray.begin(), end = key_ray.end(); it1 != end; ++it1) {
-            auto node = octree_global_->search(*it1);
-            if (node && octree_global_->isNodeOccupied(node)) {
+            auto node = octree->search(*it1);
+            if (node && octree->isNodeOccupied(node)) {
               ROS_ERROR_THROTTLE(0.1, "[MrsOctomapPlanner]: trajectory check found collision with prediction horizon between %d and %d, replanning!", i, i + 1);
               ray_is_cool = false;
               break;
@@ -1252,7 +1260,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       /* std::scoped_lock lock(mutex_initial_condition_); */
       mrs_msgs::TrackerCommandConstPtr tracker_cmd  = sh_tracker_cmd_.getMsg();
-      auto                             octree_frame = mrs_lib::get_mutexed(mutex_octree_global_, octree_frame_);
+      auto                             octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
 
       // transform the position cmd to the map frame
       mrs_msgs::ReferenceStamped position_cmd_ref;
@@ -1331,9 +1339,17 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
 
   const mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerFutureCheck", ros::Duration(_scope_timer_duration_), _scope_timer_enabled_);
 
+  std::shared_ptr<OcTree_t> octree;
+
+  {
+    std::scoped_lock lock(mutex_octree_);
+
+    octree = std::make_shared<OcTree_t>(*octree_);
+  }
+
   // | ----------- check if the prediction is feasible ---------- |
 
-  if (!octree_global_->getRoot()) {
+  if (!octree->getRoot()) {
     ROS_ERROR("[MrsOctomapPlanner]: cannot check for collision, don't have a map");
     return;
   }
@@ -1390,20 +1406,20 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
 
       octomap::point3d point1(trajectory.points[i].position.x, trajectory.points[i].position.y, trajectory.points[i].position.z);
       double           angle_step          = 2 * M_PI / _collision_check_point_count_;
-      double           raycasting_distance = _safe_obstacle_distance_ - octree_global_->getResolution();
+      double           raycasting_distance = _safe_obstacle_distance_ - octree->getResolution();
       bool             cropped_trajectory  = false;
 
       // TODO check in 3D as well??
       for (double phi = -M_PI; phi < M_PI; phi += angle_step) {
         octomap::point3d point_ray_end = point1 + octomap::point3d(raycasting_distance * cos(phi), raycasting_distance * sin(phi), 0);
         octomap::KeyRay  ray;
-        if (octree_global_->computeRayKeys(point1, point_ray_end, ray)) {
+        if (octree->computeRayKeys(point1, point_ray_end, ray)) {
           for (octomap::KeyRay::iterator it = ray.begin(), end = ray.end(); it != end; ++it) {
             // check if the cell is occupied in the map
-            auto node = octree_global_->search(*it);
+            auto node = octree->search(*it);
             if (!node) {
               /* ROS_WARN("[MrsOctomapPlanner]: Detected UNKNOWN space along the planned trajectory!"); */
-            } else if (octree_global_->isNodeOccupied(node)) {
+            } else if (octree->isNodeOccupied(node)) {
               /* ROS_WARN("[MrsOctomapPlanner]: Detected OCCUPIED space along the planned trajectory!"); */
               // shorten the trajectory
               int orig_traj_size = int(trajectory.points.size());
@@ -1457,13 +1473,13 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
 
       octomap::KeyRay key_ray;
 
-      if (octree_global_->computeRayKeys(point1, point2, key_ray)) {
+      if (octree->computeRayKeys(point1, point2, key_ray)) {
 
         bool ray_is_cool = true;
         for (octomap::KeyRay::iterator it1 = key_ray.begin(), end = key_ray.end(); it1 != end; ++it1) {
 
-          auto node = octree_global_->search(*it1);
-          if (node && octree_global_->isNodeOccupied(node)) {
+          auto node = octree->search(*it1);
+          if (node && octree->isNodeOccupied(node)) {
             ray_is_cool = false;
             break;
           }
