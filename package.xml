@@ -25,6 +25,7 @@
   <depend>rospy</depend>
   <depend>std_msgs</depend>
   <depend>dynamic_edt_3d</depend>
+  <depend>mrs_octomap_tools</depend>
 
   <export>
     <nodelet plugin="${prefix}/nodelets.xml" />

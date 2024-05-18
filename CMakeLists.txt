@@ -18,6 +18,7 @@ set(CATKIN_DEPENDENCIES
   mrs_lib
   mrs_msgs
   mrs_modules_msgs
+  mrs_octomap_tools
   mrs_subt_planning_lib
   nav_msgs
   nodelet
