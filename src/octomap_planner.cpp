@@ -140,6 +140,9 @@ private:
   std::shared_ptr<OcTree_t> octree_;
   std::mutex                mutex_octree_;
 
+  ros::Time  planner_time_flag_;
+  std::mutex mutex_planner_time_flag_;
+
   // visualizer params
   double _points_scale_;
   double _lines_scale_;
@@ -273,6 +276,8 @@ void OctomapPlanner::onInit() {
   nh_ = nodelet::Nodelet::getMTPrivateNodeHandle();
 
   ros::Time::waitForValid();
+
+  planner_time_flag_ = ros::Time(0);
 
   ROS_INFO("[MrsOctomapPlanner]: initializing");
 
@@ -949,7 +954,20 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
             _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
         ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
+
+        {
+          std::scoped_lock lock(mutex_planner_time_flag_);
+
+          planner_time_flag_ = ros::Time::now();
+        }
+
         waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
+
+        {
+          std::scoped_lock lock(mutex_planner_time_flag_);
+
+          planner_time_flag_ = ros::Time(0);
+        }
       }
 
       timer.checkpoint("after findPath()");
@@ -1523,6 +1541,15 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
   }
   catch (...) {
     ROS_ERROR("exception caught during publishing topic '%s'", pub_diagnostics_.getTopic().c_str());
+  }
+
+  auto planner_time_flag = mrs_lib::get_mutexed(mutex_planner_time_flag_, planner_time_flag_);
+
+  if (planner_time_flag != ros::Time(0)) {
+    if ((ros::Time::now() - planner_time_flag).toSec() > 5 * _timeout_threshold_) {
+      ROS_ERROR_THROTTLE(1.0, "[OctomapPlanner]: !!! planner is deadlocked, restarting");
+      ros::shutdown();
+    }
   }
 }
 

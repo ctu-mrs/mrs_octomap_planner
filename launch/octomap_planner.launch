@@ -21,7 +21,7 @@
 
   <group ns="$(arg UAV_NAME)">
 
-    <node pkg="nodelet" type="nodelet" name="octomap_planner" args="$(arg nodelet) mrs_octomap_planner/OctomapPlanner $(arg nodelet_manager)" output="screen" launch-prefix="$(arg launch_prefix)">
+    <node pkg="nodelet" type="nodelet" name="octomap_planner" args="$(arg nodelet) mrs_octomap_planner/OctomapPlanner $(arg nodelet_manager)" output="screen" launch-prefix="$(arg launch_prefix)" respawn="true">
 
       <rosparam file="$(find mrs_octomap_planner)/config/octomap_planner.yaml" command="load" />
 
