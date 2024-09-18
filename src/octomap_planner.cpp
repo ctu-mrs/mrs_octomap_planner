@@ -92,7 +92,6 @@ private:
   double _time_for_trajectory_generator_;
   double _max_waypoint_distance_;
   double _min_altitude_;
-  double _max_altitude_;
   double _rate_main_timer_;
   double _rate_diagnostics_timer_;
   double _rate_future_check_timer_;
@@ -128,6 +127,9 @@ private:
   int    _min_allowed_trajectory_points_after_crop_;
   bool   _scope_timer_enabled_;
   double _scope_timer_duration_;
+
+  double     _max_altitude_;
+  std::mutex mutex_max_altitude_;
 
   double     _safe_obstacle_distance_;
   std::mutex mutex_safety_distance_;
@@ -184,6 +186,7 @@ private:
   ros::ServiceServer service_server_reference_;
   ros::ServiceServer service_server_set_planner_;
   ros::ServiceServer service_server_set_safety_distance_;
+  ros::ServiceServer service_server_set_max_altitude_;
 
   // service server callbacks
   bool callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res);
@@ -191,6 +194,7 @@ private:
   bool callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res);
   bool callbackSetPlanner([[maybe_unused]] mrs_msgs::String::Request& req, mrs_msgs::String::Response& res);
   bool callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs_msgs::Vec1::Response& res);
+  bool callbackSetMaxAltitude(mrs_msgs::Vec1::Request& req, mrs_msgs::Vec1::Response& res);
 
   // service clients
   mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>             sc_get_trajectory_;
@@ -390,6 +394,7 @@ void OctomapPlanner::onInit() {
   service_server_reference_           = nh_.advertiseService("reference_in", &OctomapPlanner::callbackReference, this);
   service_server_set_planner_         = nh_.advertiseService("planner_type_in", &OctomapPlanner::callbackSetPlanner, this);
   service_server_set_safety_distance_ = nh_.advertiseService("set_safety_distance_in", &OctomapPlanner::callbackSetSafetyDistance, this);
+  service_server_set_max_altitude_    = nh_.advertiseService("set_max_altitude_in", &OctomapPlanner::callbackSetMaxAltitude, this);
 
   // | ----------------------- transformer ---------------------- |
 
@@ -803,6 +808,32 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
 
 //}
 
+/* callbackSetMaxAltitude() //{ */
+
+bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::Vec1::Request& req, mrs_msgs::Vec1::Response& res) {
+
+  if (!is_initialized_) {
+    return false;
+  }
+
+  {
+    std::scoped_lock lock(mutex_max_altitude_);
+
+    _max_altitude_ = req.goal;
+  }
+
+  ROS_INFO("[MrsOctomapPlanner]: setting max altitude to %.2f.", _max_altitude_);
+  res.success = true;
+
+  res.message = res.success ? "max altitude set" : "not set";
+
+  ROS_INFO("[MrsOctomapPlanner]: %s", res.message.c_str());
+
+  return true;
+}
+
+//}
+
 // | ------------------------- timers ------------------------- |
 
 /* timerMain() //{ */
@@ -971,6 +1002,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       /* ros::Time                                      mct_start = ros::Time::now(); */
 
       auto safe_obstacle_distance = mrs_lib::get_mutexed(mutex_safety_distance_, _safe_obstacle_distance_);
+      auto max_altitude           = mrs_lib::get_mutexed(mutex_max_altitude_, _max_altitude_);
 
       if (_use_subt_planner_) {
 
@@ -978,7 +1010,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
 
         subt_planner.initialize(true, time_for_planning - _subt_processing_timeout_, _subt_processing_timeout_, safe_obstacle_distance, _subt_clearing_dist_,
-                                _min_altitude_, _max_altitude_, _subt_debug_info_, bv_planner_, false);
+                                _min_altitude_, max_altitude, _subt_debug_info_, bv_planner_, false);
         subt_planner.setAstarAdmissibility(_subt_admissibility_);
 
         ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
@@ -993,7 +1025,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         ROS_INFO("[MrsOctomapPlanner]: Initializing astar planner.");
         mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(
             safe_obstacle_distance, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
-            _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
+            _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, max_altitude, _unknown_is_occupied_, bv_planner_);
 
         ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
 

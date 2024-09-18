@@ -47,6 +47,7 @@
       <remap from="~reference_in" to="~reference" />
       <remap from="~planner_type_in" to="~set_planner" />
       <remap from="~set_safety_distance_in" to="~distance" />
+      <remap from="~set_max_altitude_in" to="~altitude" />
 
       <!-- services out -->
 
