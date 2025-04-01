@@ -132,6 +132,8 @@ private:
   std::mutex mutex_max_altitude_;
 
   double     _safe_obstacle_distance_;
+  double     _safe_obstacle_distance_min_;
+  double     _safe_obstacle_distance_max_;
   std::mutex mutex_safety_distance_;
 
   bool   _turn_in_flight_direction_;
@@ -302,7 +304,9 @@ void OctomapPlanner::onInit() {
   param_loader.loadParam("future_check_timer/rate", _rate_future_check_timer_);
 
   param_loader.loadParam("euclidean_distance_cutoff", _euclidean_distance_cutoff_);
-  param_loader.loadParam("safe_obstacle_distance", _safe_obstacle_distance_);
+  param_loader.loadParam("safe_obstacle_distance/default", _safe_obstacle_distance_);
+  param_loader.loadParam("safe_obstacle_distance/min", _safe_obstacle_distance_min_);
+  param_loader.loadParam("safe_obstacle_distance/max", _safe_obstacle_distance_max_);
   param_loader.loadParam("distance_penalty", _distance_penalty_);
   param_loader.loadParam("greedy_penalty", _greedy_penalty_);
   param_loader.loadParam("planning_tree/resolution", planning_tree_resolution_);
@@ -801,7 +805,7 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
     return false;
   }
 
-  if (req.goal >= 2.0 & req.goal < 10) {
+  if (req.goal >= _safe_obstacle_distance_min_ && req.goal <= _safe_obstacle_distance_max_) {
 
     {
       std::scoped_lock lock(mutex_safety_distance_);
@@ -809,16 +813,16 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
       _safe_obstacle_distance_ = req.goal;
     }
 
-    ROS_INFO("[MrsOctomapPlanner]: setting safety distance to %.2f.", _safe_obstacle_distance_);
+    ROS_INFO("[MrsOctomapPlanner]: setting safety distance to %.2f m.", _safe_obstacle_distance_);
     res.success = true;
 
   } else {
 
-    ROS_WARN("[OctomapPlanner]: failed to set safety distance %.2f", req.goal);
+    ROS_WARN("[OctomapPlanner]: failed to set safety distance %.2f m (outside the allowed range [%.2f, %.2f])", req.goal, _safe_obstacle_distance_min_, _safe_obstacle_distance_max_);
     res.success = false;
   }
 
-  res.message = res.success ? "distance set" : "not set";
+  res.message = res.success ? "safety distance set" : "safety distance not set";
 
   ROS_INFO("[MrsOctomapPlanner]: %s", res.message.c_str());
 
