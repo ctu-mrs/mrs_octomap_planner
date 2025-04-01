@@ -364,12 +364,12 @@ void OctomapPlanner::onInit() {
   if (_restart_planner_on_deadlock_) {
 
     if (_planner_deadlock_timeout_factor < 3.0) { 
-      ROS_WARN("[OctomapPlanner]: Timeout factor for planner deadlock detection was set too low (< 3.0). Setting factor to 3.0 to prevent premature killing of the planner.");
+      ROS_WARN("[MrsOctomapPlanner]: Timeout factor for planner deadlock detection was set too low (< 3.0). Setting factor to 3.0 to prevent premature killing of the planner.");
       _planner_deadlock_timeout_factor = 3.0;
     }
 
     planner_deadlock_timeout_ = _planner_deadlock_timeout_factor * _timeout_threshold_;
-    ROS_INFO("[OctomapPlanner]: Planner deadlock timeout set to %.2f s.", planner_deadlock_timeout_);
+    ROS_INFO("[MrsOctomapPlanner]: Planner deadlock timeout set to %.2f s.", planner_deadlock_timeout_);
 
   }
 
@@ -818,7 +818,7 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
 
   } else {
 
-    ROS_WARN("[OctomapPlanner]: failed to set safety distance %.2f m (outside the allowed range [%.2f, %.2f])", req.goal, _safe_obstacle_distance_min_, _safe_obstacle_distance_max_);
+    ROS_WARN("[MrsOctomapPlanner]: failed to set safety distance %.2f m (outside the allowed range [%.2f, %.2f])", req.goal, _safe_obstacle_distance_min_, _safe_obstacle_distance_max_);
     res.success = false;
   }
 
@@ -845,10 +845,10 @@ bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::Vec1::Request& req, mrs_ms
     _max_altitude_ = req.goal;
   }
 
-  ROS_INFO("[MrsOctomapPlanner]: setting max altitude to %.2f.", _max_altitude_);
+  ROS_INFO("[MrsOctomapPlanner]: setting max altitude to %.2f m.", _max_altitude_);
   res.success = true;
 
-  res.message = res.success ? "max altitude set" : "not set";
+  res.message = "max altitude set";
 
   ROS_INFO("[MrsOctomapPlanner]: %s", res.message.c_str());
 
@@ -1659,7 +1659,7 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
 
   if (_restart_planner_on_deadlock_ && planner_time_flag != ros::Time(0)) {
     if ((ros::Time::now() - planner_time_flag).toSec() > planner_deadlock_timeout_) {
-      ROS_ERROR("[OctomapPlanner]: Planner is deadlocked, restarting!");
+      ROS_ERROR("[MrsOctomapPlanner]: Planner is deadlocked, restarting!");
       ros::shutdown();
     }
   }
@@ -1747,7 +1747,7 @@ std::optional<mrs_msgs::ReferenceStamped> OctomapPlanner::getInitialCondition(co
   }
 
   if (prediction_full_state.stamps.size() == 0) {
-    ROS_ERROR_THROTTLE(1.0, "[MrsOctomapPLanner]: Could not obtain initial condition, prediction full state is empty.");
+    ROS_ERROR_THROTTLE(1.0, "[MrsOctomapPlanner]: Could not obtain initial condition, prediction full state is empty.");
     return {};
   }
 
