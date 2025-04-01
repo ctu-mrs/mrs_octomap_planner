@@ -81,3 +81,6 @@ lines_scale: 0.02
 scope_timer:
   enable: false # enable scope timer for measuring processing time
   duration: 0.1 # [s] scope timer output is throttled to this period
+
+restart_planner_on_deadlock: true
+planner_deadlock_timeout_factor: 1.0 # deadlock will be detected after this factor times timeout threshold will be exceeded 

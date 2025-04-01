@@ -147,6 +147,8 @@ private:
 
   ros::Time  planner_time_flag_;
   std::mutex mutex_planner_time_flag_;
+  bool _restart_planner_on_deadlock_;
+  double planner_deadlock_timeout_;
 
   // visualizer params
   double _points_scale_;
@@ -292,6 +294,8 @@ void OctomapPlanner::onInit() {
 
   mrs_lib::ParamLoader param_loader(nh_, "MrsOctomapPlanner");
 
+  double _planner_deadlock_timeout_factor;
+
   param_loader.loadParam("uav_name", _uav_name_);
   param_loader.loadParam("main_timer/rate", _rate_main_timer_);
   param_loader.loadParam("diagnostics_timer/rate", _rate_diagnostics_timer_);
@@ -344,10 +348,25 @@ void OctomapPlanner::onInit() {
   param_loader.loadParam("min_allowed_trajectory_points_after_crop", _min_allowed_trajectory_points_after_crop_);
   param_loader.loadParam("scope_timer/enable", _scope_timer_enabled_);
   param_loader.loadParam("scope_timer/duration", _scope_timer_duration_);
+  param_loader.loadParam("restart_planner_on_deadlock", _restart_planner_on_deadlock_);
+  param_loader.loadParam("planner_deadlock_timeout_factor", _planner_deadlock_timeout_factor);
 
   if (!param_loader.loadedSuccessfully()) {
     ROS_ERROR("[MrsOctomapPlanner]: could not load all parameters");
     ros::shutdown();
+  }
+
+  // set planner deadlock timeout
+  if (_restart_planner_on_deadlock_) {
+
+    if (_planner_deadlock_timeout_factor < 3.0) { 
+      ROS_WARN("[OctomapPlanner]: Timeout factor for planner deadlock detection was set too low (< 3.0). Setting factor to 3.0 to prevent premature killing of the planner.");
+      _planner_deadlock_timeout_factor = 3.0;
+    }
+
+    planner_deadlock_timeout_ = _planner_deadlock_timeout_factor * _timeout_threshold_;
+    ROS_INFO("[OctomapPlanner]: Planner deadlock timeout set to %.2f s.", planner_deadlock_timeout_);
+
   }
 
   octree_ = nullptr;
@@ -1014,11 +1033,24 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         subt_planner.setAstarAdmissibility(_subt_admissibility_);
 
         ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
+
+        {
+          std::scoped_lock lock(mutex_planner_time_flag_);
+
+          planner_time_flag_ = ros::Time::now();
+        }
+
         waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree, _subt_make_path_straight_, _subt_apply_postprocessing_, _subt_bbx_horizontal_,
                                           _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
                                           _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_processing_path_length_,
                                           _subt_shortening_window_size_, _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_, false, 2.0,
                                           _subt_remove_obsolete_points_, _subt_obsolete_points_tolerance_);
+
+        {
+          std::scoped_lock lock(mutex_planner_time_flag_);
+
+          planner_time_flag_ = ros::Time(0);
+        }
 
       } else {
 
@@ -1621,9 +1653,9 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
 
   auto planner_time_flag = mrs_lib::get_mutexed(mutex_planner_time_flag_, planner_time_flag_);
 
-  if (planner_time_flag != ros::Time(0)) {
-    if ((ros::Time::now() - planner_time_flag).toSec() > 5 * _timeout_threshold_) {
-      ROS_ERROR_THROTTLE(1.0, "[OctomapPlanner]: !!! planner is deadlocked, restarting");
+  if (_restart_planner_on_deadlock_ && planner_time_flag != ros::Time(0)) {
+    if ((ros::Time::now() - planner_time_flag).toSec() > planner_deadlock_timeout_) {
+      ROS_ERROR("[OctomapPlanner]: Planner is deadlocked, restarting!");
       ros::shutdown();
     }
   }
