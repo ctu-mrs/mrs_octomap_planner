@@ -129,6 +129,8 @@ private:
   double _scope_timer_duration_;
   double _goal_reached_dist_;
   int    _max_attempts_to_replan_;
+  double _min_dist_to_goal_improvement_;         // minimum improvement of distance of last waypoint to goal in two consecutive replanning steps
+  double _max_goal_dist_to_disable_replanning_;  // maximum distance for which the replanning can be disabled when there is a risk of oscillations
 
   double     _max_altitude_;
   std::mutex mutex_max_altitude_;
@@ -235,7 +237,10 @@ private:
   // planning
   std::atomic<int> replanning_counter_ = 0;
   ros::Time        time_last_plan_;
-  int              path_id_ = 0;
+  int              path_id_                         = 0;
+  bool             new_user_goal_received_          = false;
+  bool             first_planning_for_current_goal_ = false;
+  bool             detected_collision_              = false;
 
   // state machine
   std::atomic<State_t> state_;
@@ -325,6 +330,8 @@ void OctomapPlanner::onInit() {
   param_loader.loadParam("min_path_length", _min_path_length_);
   param_loader.loadParam("goal_reached_dist", _goal_reached_dist_);
   param_loader.loadParam("max_attempts_to_replan", _max_attempts_to_replan_);
+  param_loader.loadParam("min_dist_to_goal_improvement", _min_dist_to_goal_improvement_);
+  param_loader.loadParam("max_goal_dist_to_disable_replanning", _max_goal_dist_to_disable_replanning_);
   param_loader.loadParam("trajectory_generator/input_trajectory_length", _trajectory_generation_input_length_);
   param_loader.loadParam("trajectory_generator/use_heading", _trajectory_generation_use_heading_);
   param_loader.loadParam("trajectory_generator/relax_heading", _trajectory_generation_relax_heading_);
@@ -680,7 +687,8 @@ bool OctomapPlanner::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req,
 
       std::scoped_lock lock(mutex_user_goal_);
 
-      user_goal_ = result.value().reference;
+      user_goal_              = result.value().reference;
+      new_user_goal_received_ = true;
 
     } else {
       std::stringstream ss;
@@ -750,7 +758,8 @@ bool OctomapPlanner::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStamp
 
       std::scoped_lock lock(mutex_user_goal_);
 
-      user_goal_ = result.value().reference;
+      user_goal_              = result.value().reference;
+      new_user_goal_received_ = true;
 
     } else {
       std::stringstream ss;
@@ -900,6 +909,10 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
   ROS_INFO_ONCE("[MrsOctomapPlanner]: main timer spinning");
 
   const auto user_goal = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
+  if (new_user_goal_received_) {
+    first_planning_for_current_goal_ = true;
+    new_user_goal_received_          = false;
+  }
 
   const mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
   const mrs_msgs::TrackerCommandConstPtr            tracker_cmd          = sh_tracker_cmd_.getMsg();
@@ -1133,13 +1146,38 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
           break;
         }
+
+        // Avoiding oscillation when the goal cannot be reached
+        octomap::point3d best_goal_current     = octomap::point3d(float(back_x), float(back_y), float(back_z));
+        double           path_end_to_goal_dist = (plan_from - user_goal_octpoint).norm();
+        if (!detected_collision_ && !first_planning_for_current_goal_ && path_end_to_goal_dist > _goal_reached_dist_ &&
+            path_end_to_goal_dist < _max_goal_dist_to_disable_replanning_) {  // goal unreachable
+
+          octomap::point3d best_goal_prev = octomap::point3d(diagnostics_.best_goal.x, diagnostics_.best_goal.y, diagnostics_.best_goal.z);
+
+          double dist_to_goal_prev    = (best_goal_prev - user_goal_octpoint).norm();
+          double dist_to_goal_current = (best_goal_current - user_goal_octpoint).norm();
+
+          if (dist_to_goal_prev - dist_to_goal_current < _min_dist_to_goal_improvement_) {
+            ROS_INFO_THROTTLE(1.0, "[MrsOctomapPlanner]: Insufficient improvement in dist to goal. Aborting the planning to avoid oscillations.");
+            changeState(STATE_IDLE);
+            break;
+          }
+        }
       }
 
-      time_last_plan_ = ros::Time::now();
+      time_last_plan_                  = ros::Time::now();
+      first_planning_for_current_goal_ = false;
+      detected_collision_ = false;
 
-      diagnostics_.best_goal.x = waypoints.first.back().x();
-      diagnostics_.best_goal.y = waypoints.first.back().y();
-      diagnostics_.best_goal.z = waypoints.first.back().z();
+      {
+        std::scoped_lock lock(mutex_diagnostics_);
+
+        diagnostics_.best_goal.x = waypoints.first.back().x();
+        diagnostics_.best_goal.y = waypoints.first.back().y();
+        diagnostics_.best_goal.z = waypoints.first.back().z();
+      }
+
       /*//}*/
 
       {
@@ -1340,6 +1378,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       }
       if (!ray_is_cool) {
         replanning_counter_++;
+        detected_collision_ = true;
         changeState(STATE_PLANNING);
         break;
       }
