@@ -16,7 +16,9 @@ safe_obstacle_distance:
   min: 0.6 # [m]
   max: 5.0 # [m]
 
-min_path_length: 0.2 # [m] minimum length of path to be published
+goal_reached_dist: 0.8 # [m] distance from current position within which the goal is considered to be reached 
+min_path_length: 0.4 # [m] minimum length of path to be published
+max_attempts_to_replan: 2 # [-] maximum number of attempts to replan when a path is not found
 
 distance_penalty: 1.0 # coefficient for traveled distance from start in A* cost function
 greedy_penalty: 1.0 # coefficient for estimated distance to goal in A* cost function

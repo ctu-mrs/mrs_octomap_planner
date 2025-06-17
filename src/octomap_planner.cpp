@@ -127,6 +127,8 @@ private:
   int    _min_allowed_trajectory_points_after_crop_;
   bool   _scope_timer_enabled_;
   double _scope_timer_duration_;
+  double _goal_reached_dist_;
+  int    _max_attempts_to_replan_;
 
   double     _max_altitude_;
   std::mutex mutex_max_altitude_;
@@ -149,8 +151,8 @@ private:
 
   ros::Time  planner_time_flag_;
   std::mutex mutex_planner_time_flag_;
-  bool _restart_planner_on_deadlock_;
-  double planner_deadlock_timeout_;
+  bool       _restart_planner_on_deadlock_;
+  double     planner_deadlock_timeout_;
 
   // visualizer params
   double _points_scale_;
@@ -321,6 +323,8 @@ void OctomapPlanner::onInit() {
   param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
   param_loader.loadParam("replan_after", _replan_after_);
   param_loader.loadParam("min_path_length", _min_path_length_);
+  param_loader.loadParam("goal_reached_dist", _goal_reached_dist_);
+  param_loader.loadParam("max_attempts_to_replan", _max_attempts_to_replan_);
   param_loader.loadParam("trajectory_generator/input_trajectory_length", _trajectory_generation_input_length_);
   param_loader.loadParam("trajectory_generator/use_heading", _trajectory_generation_use_heading_);
   param_loader.loadParam("trajectory_generator/relax_heading", _trajectory_generation_relax_heading_);
@@ -360,17 +364,24 @@ void OctomapPlanner::onInit() {
     ros::shutdown();
   }
 
+  if (_goal_reached_dist_ < 2 * planning_tree_resolution_) {
+    ROS_WARN(
+        "[OctomapPlanner]: Cannot set %.2f as goal reached dist for planning tree resolution %.2f. Setting goal reached distance to %.2f to prevent deadlocks.",
+        _goal_reached_dist_, planning_tree_resolution_, 2 * planning_tree_resolution_);
+    _goal_reached_dist_ = 2 * planning_tree_resolution_;
+  }
   // set planner deadlock timeout
   if (_restart_planner_on_deadlock_) {
 
-    if (_planner_deadlock_timeout_factor < 3.0) { 
-      ROS_WARN("[MrsOctomapPlanner]: Timeout factor for planner deadlock detection was set too low (< 3.0). Setting factor to 3.0 to prevent premature killing of the planner.");
+    if (_planner_deadlock_timeout_factor < 3.0) {
+      ROS_WARN(
+          "[MrsOctomapPlanner]: Timeout factor for planner deadlock detection was set too low (< 3.0). Setting factor to 3.0 to prevent premature killing of "
+          "the planner.");
       _planner_deadlock_timeout_factor = 3.0;
     }
 
     planner_deadlock_timeout_ = _planner_deadlock_timeout_factor * _timeout_threshold_;
     ROS_INFO("[MrsOctomapPlanner]: Planner deadlock timeout set to %.2f s.", planner_deadlock_timeout_);
-
   }
 
   octree_ = nullptr;
@@ -818,7 +829,8 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
 
   } else {
 
-    ROS_WARN("[MrsOctomapPlanner]: failed to set safety distance %.2f m (outside the allowed range [%.2f, %.2f])", req.goal, _safe_obstacle_distance_min_, _safe_obstacle_distance_max_);
+    ROS_WARN("[MrsOctomapPlanner]: failed to set safety distance %.2f m (outside the allowed range [%.2f, %.2f])", req.goal, _safe_obstacle_distance_min_,
+             _safe_obstacle_distance_max_);
     res.success = false;
   }
 
@@ -955,7 +967,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         diagnostics_.idle = false;
       }
 
-      if (replanning_counter_ >= 2) {
+      if (replanning_counter_ >= _max_attempts_to_replan_) {
 
         ROS_ERROR("[MrsOctomapPlanner]: planning failed, the uav is stuck");
 
@@ -1417,7 +1429,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       ROS_INFO_THROTTLE(1.0, "[MrsOctomapPlanner]: dist to goal: %.2f m", dist_to_goal);
 
-      if (dist_to_goal < 2 * planning_tree_resolution_) {
+      if (dist_to_goal < _goal_reached_dist_) {
         ROS_INFO("[MrsOctomapPlanner]: user goal reached");
         changeState(STATE_IDLE);
         break;
