@@ -18,9 +18,11 @@ safe_obstacle_distance:
 
 goal_reached_dist: 0.8 # [m] distance from current position within which the goal is considered to be reached 
 min_path_length: 0.4 # [m] minimum length of path to be published
+min_path_heading_change: 0.1 # [rad] minimum change of heading in the path to be published
 max_attempts_to_replan: 2 # [-] maximum number of attempts to replan when a path is not found
 min_dist_to_goal_improvement: 1.0 # [m] minimum improvement in distance of final waypoint of the path to user goal in two consecutive replanning steps
 max_goal_dist_to_disable_replanning: 5.0 # [m] maximum distance for which the replanning can be disabled when there is a risk of oscillations (set to zero to disable mitigation of oscillations)
+use_user_heading_for_final_point: true # if true, final point with user heading is appended to every publish path, can lead to deviation from required heading when used in combination with changing heading in direction of flight
 
 distance_penalty: 1.0 # coefficient for traveled distance from start in A* cost function
 greedy_penalty: 1.0 # coefficient for estimated distance to goal in A* cost function

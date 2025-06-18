@@ -97,6 +97,7 @@ private:
   double _rate_future_check_timer_;
   double _replan_after_;
   double _min_path_length_;
+  double _min_path_heading_change_;
   bool   _unknown_is_occupied_;
   bool   _use_subt_planner_;
   bool   _subt_make_path_straight_;
@@ -131,6 +132,7 @@ private:
   int    _max_attempts_to_replan_;
   double _min_dist_to_goal_improvement_;         // minimum improvement of distance of last waypoint to goal in two consecutive replanning steps
   double _max_goal_dist_to_disable_replanning_;  // maximum distance for which the replanning can be disabled when there is a risk of oscillations
+  bool   _use_user_heading_for_final_point_;
 
   double     _max_altitude_;
   std::mutex mutex_max_altitude_;
@@ -328,10 +330,12 @@ void OctomapPlanner::onInit() {
   param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
   param_loader.loadParam("replan_after", _replan_after_);
   param_loader.loadParam("min_path_length", _min_path_length_);
+  param_loader.loadParam("min_path_heading_change", _min_path_heading_change_);
   param_loader.loadParam("goal_reached_dist", _goal_reached_dist_);
   param_loader.loadParam("max_attempts_to_replan", _max_attempts_to_replan_);
   param_loader.loadParam("min_dist_to_goal_improvement", _min_dist_to_goal_improvement_);
   param_loader.loadParam("max_goal_dist_to_disable_replanning", _max_goal_dist_to_disable_replanning_);
+  param_loader.loadParam("use_user_heading_for_final_point", _use_user_heading_for_final_point_);
   param_loader.loadParam("trajectory_generator/input_trajectory_length", _trajectory_generation_input_length_);
   param_loader.loadParam("trajectory_generator/use_heading", _trajectory_generation_use_heading_);
   param_loader.loadParam("trajectory_generator/relax_heading", _trajectory_generation_relax_heading_);
@@ -1037,7 +1041,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       /*//}*/
 
       /* check if goal was reached */ /*//{*/
-      if ((plan_from - user_goal_octpoint).norm() < planning_tree_resolution_) {
+      if ((plan_from - user_goal_octpoint).norm() <= _min_path_length_ &&
+          mrs_lib::geometry::radians::dist(initial_condition.value().reference.heading, user_goal_.heading) < 0.1) {
 
         ROS_INFO_THROTTLE(1.0, "[MrsOctomapPlanner]: we reached the target");
         changeState(STATE_IDLE);
@@ -1052,56 +1057,91 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       auto safe_obstacle_distance = mrs_lib::get_mutexed(mutex_safety_distance_, _safe_obstacle_distance_);
       auto max_altitude           = mrs_lib::get_mutexed(mutex_max_altitude_, _max_altitude_);
 
-      if (_use_subt_planner_) {
 
-        // | -------------------- MRS SubT planner -------------------- |
-        mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
+      if ((plan_from - user_goal_octpoint).norm() <=
+          2 * sqrt(3) * planning_tree_resolution_) {  // enable planning on a short range and change of the heading without translation
 
-        subt_planner.initialize(true, time_for_planning - _subt_processing_timeout_, _subt_processing_timeout_, safe_obstacle_distance, _subt_clearing_dist_,
-                                _min_altitude_, max_altitude, _subt_debug_info_, bv_planner_, false);
-        subt_planner.setAstarAdmissibility(_subt_admissibility_);
-
-        ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
-
-        {
-          std::scoped_lock lock(mutex_planner_time_flag_);
-
-          planner_time_flag_ = ros::Time::now();
+        octomap::KeyRay key_ray;
+        bool            is_direct_path_collision_free = true;
+        if (octree->computeRayKeys(plan_from, user_goal_octpoint, key_ray)) {
+          for (octomap::KeyRay::iterator it1 = key_ray.begin(), end = key_ray.end(); it1 != end; ++it1) {
+            auto node = octree->search(*it1);
+            if (node && octree->isNodeOccupied(node)) {
+              is_direct_path_collision_free = false;
+              break;
+            }
+          }
+        } else {
+          ROS_ERROR_THROTTLE(0.1, "[MrsOctomapPlanner]: collision check of short direct path failed, could not raytrace!");
+          is_direct_path_collision_free = false;
+          break;
         }
 
-        waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree, _subt_make_path_straight_, _subt_apply_postprocessing_, _subt_bbx_horizontal_,
-                                          _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
-                                          _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_processing_path_length_,
-                                          _subt_shortening_window_size_, _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_, false, 2.0,
-                                          _subt_remove_obsolete_points_, _subt_obsolete_points_tolerance_);
+        if (is_direct_path_collision_free) {
+          ROS_INFO("[OctomapPlanner]: Using direct_collision_free_path.");
+          waypoints.second = true;
+          waypoints.first.push_back(plan_from);
 
-        {
-          std::scoped_lock lock(mutex_planner_time_flag_);
+        } else {
 
-          planner_time_flag_ = ros::Time(0);
+          ROS_WARN_THROTTLE(1.0, "[MrsOctomapPlanner]: direct short path does not exist.");
+          changeState(STATE_IDLE);
+          break;
         }
 
       } else {
 
-        ROS_INFO("[MrsOctomapPlanner]: Initializing astar planner.");
-        mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(
-            safe_obstacle_distance, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
-            _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, max_altitude, _unknown_is_occupied_, bv_planner_);
+        if (_use_subt_planner_) {
 
-        ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
+          // | -------------------- MRS SubT planner -------------------- |
+          mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
 
-        {
-          std::scoped_lock lock(mutex_planner_time_flag_);
+          subt_planner.initialize(true, time_for_planning - _subt_processing_timeout_, _subt_processing_timeout_, safe_obstacle_distance, _subt_clearing_dist_,
+                                  _min_altitude_, max_altitude, _subt_debug_info_, bv_planner_, false);
+          subt_planner.setAstarAdmissibility(_subt_admissibility_);
 
-          planner_time_flag_ = ros::Time::now();
-        }
+          ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
 
-        waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
+          {
+            std::scoped_lock lock(mutex_planner_time_flag_);
 
-        {
-          std::scoped_lock lock(mutex_planner_time_flag_);
+            planner_time_flag_ = ros::Time::now();
+          }
 
-          planner_time_flag_ = ros::Time(0);
+          waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree, _subt_make_path_straight_, _subt_apply_postprocessing_,
+                                            _subt_bbx_horizontal_, _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
+                                            _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_processing_path_length_,
+                                            _subt_shortening_window_size_, _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_, false, 2.0,
+                                            _subt_remove_obsolete_points_, _subt_obsolete_points_tolerance_);
+
+          {
+            std::scoped_lock lock(mutex_planner_time_flag_);
+
+            planner_time_flag_ = ros::Time(0);
+          }
+
+        } else {
+
+          ROS_INFO("[MrsOctomapPlanner]: Initializing astar planner.");
+          mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(
+              safe_obstacle_distance, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_,
+              _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, max_altitude, _unknown_is_occupied_, bv_planner_);
+
+          ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
+
+          {
+            std::scoped_lock lock(mutex_planner_time_flag_);
+
+            planner_time_flag_ = ros::Time::now();
+          }
+
+          waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
+
+          {
+            std::scoped_lock lock(mutex_planner_time_flag_);
+
+            planner_time_flag_ = ros::Time(0);
+          }
         }
       }
 
@@ -1150,6 +1190,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         // Avoiding oscillation when the goal cannot be reached
         octomap::point3d best_goal_current     = octomap::point3d(float(back_x), float(back_y), float(back_z));
         double           path_end_to_goal_dist = (plan_from - user_goal_octpoint).norm();
+
         if (!detected_collision_ && !first_planning_for_current_goal_ && path_end_to_goal_dist > _goal_reached_dist_ &&
             path_end_to_goal_dist < _max_goal_dist_to_disable_replanning_) {  // goal unreachable
 
@@ -1159,8 +1200,13 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           double dist_to_goal_current = (best_goal_current - user_goal_octpoint).norm();
 
           if (dist_to_goal_prev - dist_to_goal_current < _min_dist_to_goal_improvement_) {
+
             ROS_INFO_THROTTLE(1.0, "[MrsOctomapPlanner]: Insufficient improvement in dist to goal. Aborting the planning to avoid oscillations.");
-            changeState(STATE_IDLE);
+
+            replanning_counter_++;
+
+            changeState(STATE_PLANNING);
+
             break;
           }
         }
@@ -1168,7 +1214,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       time_last_plan_                  = ros::Time::now();
       first_planning_for_current_goal_ = false;
-      detected_collision_ = false;
+      detected_collision_              = false;
 
       {
         std::scoped_lock lock(mutex_diagnostics_);
@@ -1387,6 +1433,12 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       setReplanningPoint(trajectory);
       set_timepoints_ = true;
 
+      // set user goal heading for final point such that it is achieved independently on length of the trajectory
+      if (_use_user_heading_for_final_point_ && !srv_get_path.response.trajectory.points.empty()) {
+        srv_get_path.response.trajectory.points.push_back(srv_get_path.response.trajectory.points.back());
+        srv_get_path.response.trajectory.points.back().heading = user_goal_.heading;
+      }
+
       ROS_INFO("[MrsOctomapPlanner]: publishing trajectory reference");
 
       mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
@@ -1397,12 +1449,14 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       path_id_++;
       srv_trajectory_reference.request.trajectory.input_id = path_id_;
 
-      /* int cb = 0; */
-      /* ROS_INFO("[MrsOctomapPlanner]: Mrs trajectory generation output:"); */
-      /* for (auto& point : srv_get_path.response.trajectory.points) { */
-      /*   ROS_INFO("[MrsOctomapPlanner]: Trajectory point %02d: [%.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z); */
-      /*   cb++; */
-      /* } */
+      int cb = 0;
+      ROS_INFO("[MrsOctomapPlanner]: Mrs trajectory generation output:");
+
+      for (auto& point : srv_trajectory_reference.request.trajectory.points) {
+        ROS_INFO("[MrsOctomapPlanner]: Trajectory point %02d: [%.2f, %.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z,
+                 point.heading);
+        cb++;
+      }
 
       ROS_INFO("[MrsOctomapPlanner]: Calling trajectory service with timestamp = %.3f at time %.3f.",
                srv_trajectory_reference.request.trajectory.header.stamp.toSec(), ros::Time::now().toSec());
