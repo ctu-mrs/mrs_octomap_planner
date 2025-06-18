@@ -1147,22 +1147,30 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
           ROS_INFO("[MrsOctomapPlanner]: after mutex planner time flag");
         }
+        ROS_INFO("[MrsOctomapPlanner]: behind else");
       }
 
+      ROS_INFO("[MrsOctomapPlanner]: behind else 2");
       timer.checkpoint("after findPath()");
+      ROS_INFO("[MrsOctomapPlanner]: after timer");
 
       // path is complete
       if (waypoints.second) {
 
+        ROS_INFO("[MrsOctomapPlanner]: Path is complete");
         replanning_counter_ = 0;
 
+        ROS_INFO("[MrsOctomapPlanner]: Replanning counter = 0");
         waypoints.first.push_back(user_goal_octpoint);
 
         ROS_INFO("[MrsOctomapPlanner]: Path is complete. Path length = %lu", waypoints.first.size());
+        ROS_INFO("[MrsOctomapPlanner]: Path is complete last line");
 
       } else {
 
+        ROS_INFO("[MrsOctomapPlanner]: Path is not complete");
         ROS_INFO("[MrsOctomapPlanner]: path length: %lu", waypoints.first.size());
+        ROS_INFO("[MrsOctomapPlanner]: Path is not complete behind print");
         if (waypoints.first.size() < 2) {
 
           ROS_WARN("[MrsOctomapPlanner]: path not found");
@@ -1171,6 +1179,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
           break;
         }
+
+        ROS_INFO("[MrsOctomapPlanner]: Path is not complete  but found");
 
         double front_x = waypoints.first.front().x();
         double front_y = waypoints.first.front().y();
@@ -1217,6 +1227,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           }
         }
       }
+
+      ROS_INFO("[MrsOctomapPlanner]: After condition 1.");
 
       time_last_plan_                  = ros::Time::now();
       first_planning_for_current_goal_ = false;
@@ -1565,6 +1577,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
 void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt) {
 
+  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: start");
+
   if (!is_initialized_) {
     return;
   }
@@ -1572,18 +1586,23 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
   /* preconditions //{ */
 
   if (!sh_control_manager_diag_.hasMsg()) {
+    ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: missing control manager");
     return;
   }
 
   if (!sh_octomap_.hasMsg()) {
+    ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: missing octomap");
     return;
   }
 
   //}
 
   if (state_ == STATE_IDLE) {
+    ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: is idle");
     return;
   }
+
+  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: after checks");
 
   ROS_INFO_ONCE("[MrsOctomapPlanner]: future check timer spinning");
 
@@ -1591,12 +1610,14 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
 
   std::shared_ptr<OcTree_t> octree;
 
+  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: waiting for mutex octree");
   {
     std::scoped_lock lock(mutex_octree_);
 
     octree = std::make_shared<OcTree_t>(*octree_);
   }
 
+  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: after mutex octree");
   // | ----------- check if the prediction is feasible ---------- |
 
   if (!octree->getRoot()) {
@@ -1607,6 +1628,7 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
   mrs_msgs::MpcPredictionFullState            prediction           = sh_tracker_cmd_.getMsg()->full_state_prediction;
   mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
 
+  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: start checking");
   if (control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
 
     geometry_msgs::TransformStamped tf;
@@ -1756,6 +1778,7 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
       }
     }
   }
+  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: end checking");
 }
 
 //}
@@ -1768,6 +1791,8 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
     return;
   }
 
+  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer diagnostics: Waiting for mutex diagnostics");
+
   auto diagnostics = mrs_lib::get_mutexed(mutex_diagnostics_, diagnostics_);
 
   try {
@@ -1777,6 +1802,7 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
     ROS_ERROR("exception caught during publishing topic '%s'", pub_diagnostics_.getTopic().c_str());
   }
 
+  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer diagnostics: Waiting for mutex planner time flag");
   auto planner_time_flag = mrs_lib::get_mutexed(mutex_planner_time_flag_, planner_time_flag_);
 
   if (_restart_planner_on_deadlock_ && planner_time_flag != ros::Time(0)) {
@@ -1785,6 +1811,7 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
       ros::shutdown();
     }
   }
+  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer diagnostics: end");
 }
 
 //}
