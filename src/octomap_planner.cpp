@@ -1963,10 +1963,13 @@ void OctomapPlanner::hover(void) {
 /* estimateSegmentTimes() //{ */
 
 std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen::Vector4d>& vertices, const bool use_heading) {
+  ROS_INFO("[OctomapPlanner]: Starting estimate segment time with vertices size = %lu.", vertices.size());
 
   if (vertices.size() <= 1) {
     return std::vector<double>(0);
   }
+
+  ROS_INFO("[OctomapPlanner]: Continuing estimate segment time.");
 
   const mrs_msgs::DynamicsConstraintsConstPtr constraints = sh_constraints_.getMsg();
 
@@ -1982,8 +1985,11 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
   std::vector<double> segment_times;
   segment_times.reserve(vertices.size() - 1);
 
+  size_t check = vertices.size() - 1;
+  ROS_INFO("[OctomapPlanner]: Continuing estimate segment time. Check = %lu", check);
   // for each vertex in the path
   for (size_t i = 0; i < vertices.size() - 1; i++) {
+    ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: iterating over vertices i = %lu", vertices.size());
 
     Eigen::Vector3d start     = vertices[i].head(3);
     Eigen::Vector3d end       = vertices[i + 1].head(3);
@@ -2143,6 +2149,7 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
 
     segment_times.push_back(t);
   }
+  ROS_INFO("[OctomapPlanner]: End of segment times");
   return segment_times;
 }
 
