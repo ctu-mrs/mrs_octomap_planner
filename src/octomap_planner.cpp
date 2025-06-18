@@ -1137,11 +1137,15 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
           waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
 
+          ROS_INFO("[MrsOctomapPlanner]: Path planning finished.");
+
           {
             std::scoped_lock lock(mutex_planner_time_flag_);
 
             planner_time_flag_ = ros::Time(0);
           }
+
+          ROS_INFO("[MrsOctomapPlanner]: after mutex planner time flag");
         }
       }
 
@@ -1154,9 +1158,11 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         waypoints.first.push_back(user_goal_octpoint);
 
+        ROS_INFO("[MrsOctomapPlanner]: Path is complete. Path length = %lu", waypoints.first.size());
+
       } else {
 
-        ROS_INFO("[MrsOctomapPlanner]: path length: %d", (int)waypoints.first.size());
+        ROS_INFO("[MrsOctomapPlanner]: path length: %lu", waypoints.first.size());
         if (waypoints.first.size() < 2) {
 
           ROS_WARN("[MrsOctomapPlanner]: path not found");
@@ -1216,6 +1222,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       first_planning_for_current_goal_ = false;
       detected_collision_              = false;
 
+      ROS_INFO("[OctomapPlanner]: Waiting for mutex diagnostics");
+ 
       {
         std::scoped_lock lock(mutex_diagnostics_);
 
@@ -1224,13 +1232,20 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         diagnostics_.best_goal.z = waypoints.first.back().z();
       }
 
+      ROS_INFO("[OctomapPlanner]: After mutex diagnostics");
+
       /*//}*/
+
+      ROS_INFO("[OctomapPlanner]: Waiting for mutex initial condition (unused)");
 
       {
         std::scoped_lock lock(mutex_initial_condition_);
 
         mrs_msgs::TrackerCommandConstPtr tracker_cmd  = sh_tracker_cmd_.getMsg();
+
+        ROS_INFO("[OctomapPlanner]: Waiting for mutex octree");
         auto                             octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
+        ROS_INFO("[OctomapPlanner]: After mutex octree");
 
         // transform the position cmd to the map frame
         mrs_msgs::ReferenceStamped position_cmd_ref;
@@ -1252,6 +1267,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         initial_pos_.z() = res.value().reference.position.z;
         initial_heading_ = res.value().reference.heading;
       }
+
+      ROS_INFO("[OctomapPlanner]: After mutex initial condition (unused)");
 
       ros::Time path_stamp = initial_condition.value().header.stamp;
 
