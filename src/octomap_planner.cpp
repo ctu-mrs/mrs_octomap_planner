@@ -1308,7 +1308,13 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
               dx = waypoints.first[end_idx].x() - ref.position.x;
               dy = waypoints.first[end_idx].y() - ref.position.y;
               cum_dist += (waypoints.first[end_idx] - waypoints.first[end_idx - 1]).norm();
-              end_idx = fmin(++end_idx, waypoints.first.size() - 1);
+
+              if (end_idx < waypoints.first.size() - 1) { 
+                end_idx++;
+              } else {
+                break;
+              }
+
             }
 
             if (fabs(dx) > 1e-3 || fabs(dy) > 1e-3) {
