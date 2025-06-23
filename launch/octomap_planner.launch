@@ -39,6 +39,7 @@
       <!-- topics out -->
 
       <remap from="~diagnostics_out" to="~diagnostics" />
+      <remap from="~waypoints_out" to="~waypoints" />
 
       <!-- services in -->
 

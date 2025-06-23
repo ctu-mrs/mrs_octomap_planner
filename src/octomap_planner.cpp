@@ -179,7 +179,7 @@ private:
 
   // publishers
   ros::Publisher pub_diagnostics_;
-
+  ros::Publisher waypoint_pub; 
   // subscriber callbacks
   void callbackTrackerCmd(const mrs_msgs::TrackerCommand::ConstPtr msg);
   void callbackOctomap(const octomap_msgs::Octomap::ConstPtr msg);
@@ -382,7 +382,7 @@ void OctomapPlanner::onInit() {
   // | ----------------------- publishers ----------------------- |
 
   pub_diagnostics_ = nh_.advertise<mrs_modules_msgs::OctomapPlannerDiagnostics>("diagnostics_out", 1);
-
+  waypoint_pub = nh_.advertise<geometry_msgs::PoseArray>("waypoints_out", 1);
   // | ----------------------- subscribers ---------------------- |
 
   mrs_lib::SubscribeHandlerOptions shopts;
@@ -1080,6 +1080,18 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         }
       }
 
+      geometry_msgs::PoseArray pose_array;
+      pose_array.header.stamp = ros::Time::now();
+      pose_array.header.frame_id = "map";
+      for (const auto& pt : waypoints.first) {
+        geometry_msgs::Pose pose;
+        pose.position.x = pt.x();
+        pose.position.y = pt.y();
+        pose.position.z = pt.z();
+        pose_array.poses.push_back(pose);
+      }
+      std::cout<<"size: "<<pose_array.poses.size()<<std::endl;
+      waypoint_pub.publish(pose_array);
       timer.checkpoint("after findPath()");
 
       // path is complete
@@ -1332,47 +1344,47 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         break;
       }
 
-      ROS_INFO("[MrsOctomapPlanner]: Setting replanning point");
-      setReplanningPoint(trajectory);
-      set_timepoints_ = true;
+      // ROS_INFO("[MrsOctomapPlanner]: Setting replanning point");
+      // setReplanningPoint(trajectory);
+      // set_timepoints_ = true;
 
-      ROS_INFO("[MrsOctomapPlanner]: publishing trajectory reference");
+      // ROS_INFO("[MrsOctomapPlanner]: publishing trajectory reference");
 
-      mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
-      srv_trajectory_reference.request.trajectory         = srv_get_path.response.trajectory;
-      srv_trajectory_reference.request.trajectory.fly_now = true;
+      // mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
+      // srv_trajectory_reference.request.trajectory         = srv_get_path.response.trajectory;
+      // srv_trajectory_reference.request.trajectory.fly_now = true;
 
-      // set id of trajectory
-      path_id_++;
-      srv_trajectory_reference.request.trajectory.input_id = path_id_;
+      // // set id of trajectory
+      // path_id_++;
+      // srv_trajectory_reference.request.trajectory.input_id = path_id_;
 
-      /* int cb = 0; */
-      /* ROS_INFO("[MrsOctomapPlanner]: Mrs trajectory generation output:"); */
-      /* for (auto& point : srv_get_path.response.trajectory.points) { */
-      /*   ROS_INFO("[MrsOctomapPlanner]: Trajectory point %02d: [%.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z); */
-      /*   cb++; */
-      /* } */
+      // /* int cb = 0; */
+      // /* ROS_INFO("[MrsOctomapPlanner]: Mrs trajectory generation output:"); */
+      // /* for (auto& point : srv_get_path.response.trajectory.points) { */
+      // /*   ROS_INFO("[MrsOctomapPlanner]: Trajectory point %02d: [%.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z); */
+      // /*   cb++; */
+      // /* } */
 
-      ROS_INFO("[MrsOctomapPlanner]: Calling trajectory service with timestamp = %.3f at time %.3f.",
-               srv_trajectory_reference.request.trajectory.header.stamp.toSec(), ros::Time::now().toSec());
+      // ROS_INFO("[MrsOctomapPlanner]: Calling trajectory service with timestamp = %.3f at time %.3f.",
+      //          srv_trajectory_reference.request.trajectory.header.stamp.toSec(), ros::Time::now().toSec());
 
-      {
-        bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
+      // {
+      //   bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
 
-        if (!success) {
-          ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed");
-          break;
-        } else {
-          if (!srv_trajectory_reference.response.success) {
-            ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
-            break;
-          }
-        }
-      }
+      //   if (!success) {
+      //     ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed");
+      //     break;
+      //   } else {
+      //     if (!srv_trajectory_reference.response.success) {
+      //       ROS_ERROR("[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
+      //       break;
+      //     }
+      //   }
+      // }
 
-      changeState(STATE_MOVING);
-      break;
-    }
+      // changeState(STATE_MOVING);
+      // break;
+     }
 
       //}
 
