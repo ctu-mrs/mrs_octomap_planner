@@ -405,10 +405,7 @@ std::vector<octomap::point3d> AstarPlanner::keysToCoords(std::vector<octomap::Oc
 
 /* euclideanDistanceTransform() //{ */
 
-DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &orig_coord, double radius) {
-
-  /* octomap::point3d metric_min(orig_coord.x() - radius, orig_coord.y() - radius, orig_coord.z() - radius); */
-  /* octomap::point3d metric_max(orig_coord.x() + radius, orig_coord.y() + radius, orig_coord.z() + radius); */
+DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &orig_coord) {
 
   double x, y, z;
 
@@ -448,10 +445,6 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   octomap::point3d p_min(start.x() - submap_distance, start.y() - submap_distance, start.z() - submap_distance);
   octomap::point3d p_max(start.x() + submap_distance, start.y() + submap_distance, start.z() + submap_distance);
 
-  /* int fractor = resolution < tree->getResolution() ? 0 : (resolution / tree->getResolution() / 2); */
-  /* ROS_INFO("[%s]: fractor = %d", ros::this_node::getName().c_str(), fractor); */
-
-  int counter = 0, counter_free = 0, counter_occ = 0;
   for (octomap::OcTree::leaf_bbx_iterator it = tree->begin_leafs_bbx(p_min, p_max, tree->getTreeDepth()), end = tree->end_leafs_bbx(); it != end; ++it) {
 
     auto orig_key = it.getKey();
@@ -465,27 +458,18 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 
     if (tree->isNodeOccupied(*it)) {
       new_node->setLogOdds(1.0);
-      counter_occ++;
     } else {
       new_node->setLogOdds(-1.0);
-      counter_free++;
     }
-    counter++;
   }
-
-  /* ROS_ERROR("[%s]: Number of leafs in bbx = %d, free =%d, occupied=%d, resampled tree size = %lu.", ros::this_node::getName().c_str(), counter, counter_free,
-   * counter_occ, resampled_tree->size()); */
 
   resampled_tree->expand();
 
   ROS_INFO("[%s]: planning tree resampling took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
   time_start = ros::Time::now();
 
-  /* ROS_ERROR("[%s]: Resampled tree size after expand = %lu, free = %d, occupied = %d.", ros::this_node::getName().c_str(), resampled_tree->size(),
-   * counter_free, counter_occ); */
-
   /* ROS_ERROR("[%s]: Orig coord = [%.2f, %.2f, %.2f].", ros::this_node::getName().c_str(), orig_coord.x(), orig_coord.y(), orig_coord.z()); */
-  auto edf = euclideanDistanceTransform(resampled_tree, orig_coord, radius);
+  auto edf = euclideanDistanceTransform(resampled_tree, orig_coord);
 
   ROS_INFO("[%s]: edf over planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
   time_start = ros::Time::now();
@@ -494,22 +478,16 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 
   std::shared_ptr<octomap::OcTree> binary_tree = std::make_shared<octomap::OcTree>(resolution);
 
-  counter = counter_free = counter_occ = 0;
   for (auto it = resampled_tree->begin(); it != resampled_tree->end(); it++) {
     if (edf.getDistance(it.getCoordinate()) <= safe_obstacle_distance) {
       binary_tree->setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED);  // occupied
-      counter_occ++;
     } else {
-      counter_free++;
       binary_tree->setNodeValue(it.getCoordinate(), TreeValue::FREE);  // free and safe
     }
-    counter++;
   }
 
   ROS_INFO("[%s]: setting node values in planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
   time_start = ros::Time::now();
-  /* ROS_ERROR("[%s]: Number of set node values based on edf = %d, free = %d, occupied = %d", ros::this_node::getName().c_str(), counter, counter_free,
-   * counter_occ); */
 
   std::vector<octomap::point3d> tunnel;
 

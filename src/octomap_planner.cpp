@@ -98,7 +98,7 @@ private:
   std::string       _uav_name_;
 
   // params
-  double _euclidean_distance_cutoff_;
+  double _euclidean_distance_cutoff_; // FIXME: can be always set to safe_obstacle_distance
   double _distance_penalty_;
   double _greedy_penalty_;
   double _timeout_threshold_;
@@ -405,6 +405,16 @@ void OctomapPlanner::onInit() {
         _goal_reached_dist_, planning_tree_resolution_, 2 * planning_tree_resolution_);
     _goal_reached_dist_ = 2 * planning_tree_resolution_;
   }
+
+  if (_euclidean_distance_cutoff_ < _safe_obstacle_distance_) {
+    ROS_WARN(
+        "[OctomapPlanner]: Setting Euclidean distance cutoff to %.2f for safety distance %.2f can lead to collision. Setting Euclidean distance cutoff to %.2f "
+        "to prevent collisions.",
+        _euclidean_distance_cutoff_, _safe_obstacle_distance_, _safe_obstacle_distance_);
+    _euclidean_distance_cutoff_ = _safe_obstacle_distance_;
+  }
+
+
   // set planner deadlock timeout
   if (_restart_planner_on_deadlock_) {
 
@@ -876,7 +886,8 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
     {
       std::scoped_lock lock(mutex_safety_distance_);
 
-      _safe_obstacle_distance_ = req.goal;
+      _safe_obstacle_distance_    = req.goal;
+      _euclidean_distance_cutoff_ = _safe_obstacle_distance_;
     }
 
     ROS_INFO("[MrsOctomapPlanner]: setting safety distance to %.2f m.", _safe_obstacle_distance_);
@@ -1502,12 +1513,11 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
               dy = waypoints.first[end_idx].y() - ref.position.y;
               cum_dist += (waypoints.first[end_idx] - waypoints.first[end_idx - 1]).norm();
 
-              if (end_idx < waypoints.first.size() - 1) { 
+              if (end_idx < waypoints.first.size() - 1) {
                 end_idx++;
               } else {
                 break;
               }
-
             }
 
             if (fabs(dx) > 1e-3 || fabs(dy) > 1e-3) {
