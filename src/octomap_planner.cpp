@@ -1297,12 +1297,9 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         } else {
 
-          ROS_INFO("[MrsOctomapPlanner]: Initializing astar planner.");
           mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(
               safe_obstacle_distance, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_,
               _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, max_altitude, _unknown_is_occupied_, bv_planner_);
-
-          ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
 
           {
             std::scoped_lock lock(mutex_planner_time_flag_);
@@ -1312,40 +1309,29 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
           waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
 
-          ROS_INFO("[MrsOctomapPlanner]: Path planning finished.");
-
           {
             std::scoped_lock lock(mutex_planner_time_flag_);
 
             planner_time_flag_ = ros::Time(0);
           }
 
-          ROS_INFO("[MrsOctomapPlanner]: after mutex planner time flag");
         }
-        ROS_INFO("[MrsOctomapPlanner]: behind else");
       }
 
-      ROS_INFO("[MrsOctomapPlanner]: behind else 2");
       timer.checkpoint("after findPath()");
-      ROS_INFO("[MrsOctomapPlanner]: after timer");
 
       // path is complete
       if (waypoints.second) {
 
-        ROS_INFO("[MrsOctomapPlanner]: Path is complete");
         replanning_counter_ = 0;
 
-        ROS_INFO("[MrsOctomapPlanner]: Replanning counter = 0");
         waypoints.first.push_back(user_goal_octpoint);
 
         ROS_INFO("[MrsOctomapPlanner]: Path is complete. Path length = %lu", waypoints.first.size());
-        ROS_INFO("[MrsOctomapPlanner]: Path is complete last line");
 
       } else {
 
         ROS_INFO("[MrsOctomapPlanner]: Path is not complete");
-        ROS_INFO("[MrsOctomapPlanner]: path length: %lu", waypoints.first.size());
-        ROS_INFO("[MrsOctomapPlanner]: Path is not complete behind print");
         if (waypoints.first.size() < 2) {
 
           ROS_WARN("[MrsOctomapPlanner]: path not found");
@@ -1403,13 +1389,9 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         }
       }
 
-      ROS_INFO("[MrsOctomapPlanner]: After condition 1.");
-
       time_last_plan_                  = ros::Time::now();
       first_planning_for_current_goal_ = false;
       detected_collision_              = false;
-
-      ROS_INFO("[OctomapPlanner]: Waiting for mutex diagnostics");
 
       {
         std::scoped_lock lock(mutex_diagnostics_);
@@ -1419,20 +1401,14 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         diagnostics_.best_goal.z = waypoints.first.back().z();
       }
 
-      ROS_INFO("[OctomapPlanner]: After mutex diagnostics");
-
       /*//}*/
-
-      ROS_INFO("[OctomapPlanner]: Waiting for mutex initial condition (unused)");
 
       {
         std::scoped_lock lock(mutex_initial_condition_);
 
         mrs_msgs::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
 
-        ROS_INFO("[OctomapPlanner]: Waiting for mutex octree");
         auto octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
-        ROS_INFO("[OctomapPlanner]: After mutex octree");
 
         // transform the position cmd to the map frame
         mrs_msgs::ReferenceStamped position_cmd_ref;
@@ -1454,8 +1430,6 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         initial_pos_.z() = res.value().reference.position.z;
         initial_heading_ = res.value().reference.heading;
       }
-
-      ROS_INFO("[OctomapPlanner]: After mutex initial condition (unused)");
 
       ros::Time path_stamp = initial_condition.value().header.stamp;
 
@@ -1553,8 +1527,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
                 waypoints.first[i - 1].z() + (waypoints.first[i].z() - waypoints.first[i - 1].z()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
             inter_ref.heading = ref.heading;
             srv_get_path.request.path.points.push_back(inter_ref);
-            ROS_INFO("[MrsOctomapPlanner]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y,
-                     inter_ref.position.z, inter_ref.heading);
+            /* ROS_INFO("[MrsOctomapPlanner]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y, */
+                     /* inter_ref.position.z, inter_ref.heading); */
           }
         }
 
@@ -1638,7 +1612,6 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         break;
       }
 
-      ROS_INFO("[MrsOctomapPlanner]: Setting replanning point");
       setReplanningPoint(trajectory);
       set_timepoints_ = true;
 
@@ -1659,13 +1632,13 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       srv_trajectory_reference.request.trajectory.input_id = path_id_;
 
       int cb = 0;
-      ROS_INFO("[MrsOctomapPlanner]: Mrs trajectory generation output:");
+      /* ROS_INFO("[MrsOctomapPlanner]: Mrs trajectory generation output:"); */
 
-      for (auto& point : srv_trajectory_reference.request.trajectory.points) {
-        ROS_INFO("[MrsOctomapPlanner]: Trajectory point %02d: [%.2f, %.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z,
-                 point.heading);
-        cb++;
-      }
+      /* for (auto& point : srv_trajectory_reference.request.trajectory.points) { */
+      /*   ROS_INFO("[MrsOctomapPlanner]: Trajectory point %02d: [%.2f, %.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z, */
+      /*            point.heading); */
+      /*   cb++; */
+      /* } */
 
       ROS_INFO("[MrsOctomapPlanner]: Calling trajectory service with timestamp = %.3f at time %.3f.",
                srv_trajectory_reference.request.trajectory.header.stamp.toSec(), ros::Time::now().toSec());
@@ -1782,22 +1755,18 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
     return;
   }
 
-  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: after checks");
-
   ROS_INFO_ONCE("[MrsOctomapPlanner]: future check timer spinning");
 
   const mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerFutureCheck", ros::Duration(_scope_timer_duration_), _scope_timer_enabled_);
 
   std::shared_ptr<OcTree_t> octree;
 
-  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: waiting for mutex octree");
   {
     std::scoped_lock lock(mutex_octree_);
 
     octree = std::make_shared<OcTree_t>(*octree_);
   }
 
-  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: after mutex octree");
   // | ----------- check if the prediction is feasible ---------- |
 
   if (!octree->getRoot()) {
@@ -1808,7 +1777,6 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
   mrs_msgs::MpcPredictionFullState            prediction           = sh_tracker_cmd_.getMsg()->full_state_prediction;
   mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
 
-  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: start checking");
   if (control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
 
     geometry_msgs::TransformStamped tf;
@@ -1958,7 +1926,6 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
       }
     }
   }
-  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: end checking");
 }
 
 //}
@@ -1971,8 +1938,6 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
     return;
   }
 
-  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer diagnostics: Waiting for mutex diagnostics");
-
   auto diagnostics = mrs_lib::get_mutexed(mutex_diagnostics_, diagnostics_);
 
   try {
@@ -1982,7 +1947,6 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
     ROS_ERROR("exception caught during publishing topic '%s'", pub_diagnostics_.getTopic().c_str());
   }
 
-  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer diagnostics: Waiting for mutex planner time flag");
   auto planner_time_flag = mrs_lib::get_mutexed(mutex_planner_time_flag_, planner_time_flag_);
 
   if (_restart_planner_on_deadlock_ && planner_time_flag != ros::Time(0)) {
@@ -1991,7 +1955,6 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
       ros::shutdown();
     }
   }
-  ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer diagnostics: end");
 }
 
 //}
@@ -2180,13 +2143,10 @@ void OctomapPlanner::hover(void) {
 /* estimateSegmentTimes() //{ */
 
 std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen::Vector4d>& vertices, const bool use_heading) {
-  ROS_INFO("[OctomapPlanner]: Starting estimate segment time with vertices size = %lu.", vertices.size());
 
   if (vertices.size() <= 1) {
     return std::vector<double>(0);
   }
-
-  ROS_INFO("[OctomapPlanner]: Continuing estimate segment time.");
 
   const mrs_msgs::DynamicsConstraintsConstPtr constraints = sh_constraints_.getMsg();
 
@@ -2203,10 +2163,8 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
   segment_times.reserve(vertices.size() - 1);
 
   size_t check = vertices.size() - 1;
-  ROS_INFO("[OctomapPlanner]: Continuing estimate segment time. Check = %lu", check);
   // for each vertex in the path
   for (size_t i = 0; i < vertices.size() - 1; i++) {
-    ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: iterating over vertices i = %lu", vertices.size());
 
     Eigen::Vector3d start     = vertices[i].head(3);
     Eigen::Vector3d end       = vertices[i + 1].head(3);
@@ -2366,7 +2324,6 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
 
     segment_times.push_back(t);
   }
-  ROS_INFO("[OctomapPlanner]: End of segment times");
   return segment_times;
 }
 

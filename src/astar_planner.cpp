@@ -517,12 +517,17 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
       edf.getDistanceAndClosestObstacle(current_coords, obstacle_dist, closest_obstacle);
       octomap::point3d dir_away_from_obstacle = current_coords - closest_obstacle;
 
+      ROS_INFO("[%s]: Obstacle dist = %.2f, Current = [%.2f, %.2f, %.2f], cl_obstacle = [%.2f, %.2f, %.2f]. dir_away = [%.2f, %.2f, %.2f]", ros::this_node::getName().c_str(), obstacle_dist, current_coords.x(), current_coords.y(), current_coords.z(), closest_obstacle.x(), closest_obstacle.y(), closest_obstacle.z(), dir_away_from_obstacle.x(), dir_away_from_obstacle.y(), dir_away_from_obstacle.z());
+
       if (obstacle_dist >= safe_obstacle_distance) {
         ROS_INFO("[%s]: tunnel create with %d", ros::this_node::getName().c_str(), int(tunnel.size()));
         break;
       }
 
+      ROS_INFO("[%s]: binary tree resolution = %.2f", ros::this_node::getName().c_str(), float(binary_tree->getResolution()));
       current_coords += dir_away_from_obstacle.normalized() * float(binary_tree->getResolution());
+
+      ROS_INFO("[%s]: new coords = [%.2f, %.2f, %.2f], iter 1 = %d", ros::this_node::getName().c_str(), current_coords.x(), current_coords.y(), current_coords.z(), iter1);
 
       int iter2 = 0;
 
@@ -533,6 +538,8 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
         }
 
         current_coords += dir_away_from_obstacle.normalized() * float(binary_tree->getResolution());
+
+        ROS_INFO("[%s]: new coords = [%.2f, %.2f, %.2f], iter 1 = %d, iter2 = %d ", ros::this_node::getName().c_str(), current_coords.x(), current_coords.y(), current_coords.z(), iter1, iter2);
       }
 
       binary_tree_query = binary_tree->search(current_coords);
