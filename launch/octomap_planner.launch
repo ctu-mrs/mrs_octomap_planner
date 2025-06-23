@@ -39,6 +39,7 @@
       <!-- topics out -->
 
       <remap from="~diagnostics_out" to="~diagnostics" />
+      <remap from="~virtual_obstacles_out" to="~vis_virtual_obstacles" />
 
       <!-- services in -->
 
@@ -48,6 +49,7 @@
       <remap from="~planner_type_in" to="~set_planner" />
       <remap from="~set_safety_distance_in" to="~distance" />
       <remap from="~set_max_altitude_in" to="~altitude" />
+      <remap from="~add_virtual_obstacle_in" to="~add_virtual_obstacle" />
 
       <!-- services out -->
 
