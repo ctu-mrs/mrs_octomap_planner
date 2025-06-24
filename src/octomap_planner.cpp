@@ -467,16 +467,6 @@ void OctomapPlanner::onInit() {
   sc_trajectory_reference_ = mrs_lib::ServiceClientHandler<mrs_msgs::TrajectoryReferenceSrv>(nh_, "trajectory_reference_out");
   sc_hover_                = mrs_lib::ServiceClientHandler<std_srvs::Trigger>(nh_, "hover_out");
 
-  // | --------------------- service servers -------------------- |
-
-  service_server_goto_                 = nh_.advertiseService("goto_in", &OctomapPlanner::callbackGoto, this);
-  service_server_stop_                 = nh_.advertiseService("stop_in", &OctomapPlanner::callbackStop, this);
-  service_server_reference_            = nh_.advertiseService("reference_in", &OctomapPlanner::callbackReference, this);
-  service_server_set_planner_          = nh_.advertiseService("planner_type_in", &OctomapPlanner::callbackSetPlanner, this);
-  service_server_set_safety_distance_  = nh_.advertiseService("set_safety_distance_in", &OctomapPlanner::callbackSetSafetyDistance, this);
-  service_server_set_max_altitude_     = nh_.advertiseService("set_max_altitude_in", &OctomapPlanner::callbackSetMaxAltitude, this);
-  service_server_add_virtual_obstacle_ = nh_.advertiseService("add_virtual_obstacle_in", &OctomapPlanner::callbackAddVirtualObstacle, this);
-
   // | ----------------------- transformer ---------------------- |
 
   transformer_ = std::make_unique<mrs_lib::Transformer>("Pathfinder");
@@ -504,6 +494,15 @@ void OctomapPlanner::onInit() {
   timer_diagnostics_               = nh_.createTimer(ros::Rate(_rate_diagnostics_timer_), &OctomapPlanner::timerDiagnostics, this);
   timer_publish_virtual_obstacles_ = nh_.createTimer(ros::Rate(1.0 / 2.0), &OctomapPlanner::timerPublishVirtualObstacles, this);
 
+  // | --------------------- service servers -------------------- |
+
+  service_server_goto_                 = nh_.advertiseService("goto_in", &OctomapPlanner::callbackGoto, this);
+  service_server_stop_                 = nh_.advertiseService("stop_in", &OctomapPlanner::callbackStop, this);
+  service_server_reference_            = nh_.advertiseService("reference_in", &OctomapPlanner::callbackReference, this);
+  service_server_set_planner_          = nh_.advertiseService("planner_type_in", &OctomapPlanner::callbackSetPlanner, this);
+  service_server_set_safety_distance_  = nh_.advertiseService("set_safety_distance_in", &OctomapPlanner::callbackSetSafetyDistance, this);
+  service_server_set_max_altitude_     = nh_.advertiseService("set_max_altitude_in", &OctomapPlanner::callbackSetMaxAltitude, this);
+  service_server_add_virtual_obstacle_ = nh_.advertiseService("add_virtual_obstacle_in", &OctomapPlanner::callbackAddVirtualObstacle, this);
 
   // | --------------------- finish the init -------------------- |
 
@@ -800,33 +799,13 @@ bool OctomapPlanner::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStamp
   //}
 
   // | -------- transform the reference to the map frame -------- |
-
   {
-    mrs_msgs::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
-
-    mrs_msgs::ReferenceStamped reference;
-    reference.header    = req.header;
-    reference.reference = req.reference;
-
-    auto result = transformer_->transformSingle(reference, octree_frame_);
-
-    if (result) {
-
-      std::scoped_lock lock(mutex_user_goal_);
-
-      user_goal_              = result.value().reference;
-      new_user_goal_received_ = true;
-
-    } else {
-      std::stringstream ss;
-      ss << "could not transform the reference from " << req.header.frame_id << " to " << octree_frame_;
-
-      ROS_ERROR_STREAM("[MrsOctomapPlanner]: " << ss.str());
-
-      res.success = false;
-      res.message = ss.str();
-      return true;
-    }
+    std::scoped_lock lock(mutex_user_goal_);
+    user_goal_.position.x   = req.reference.position.x;
+    user_goal_.position.y   = req.reference.position.y;
+    user_goal_.position.z   = req.reference.position.z;
+    user_goal_.heading      = req.reference.heading;
+    new_user_goal_received_ = true;
   }
 
   interrupted_ = false;
@@ -940,19 +919,15 @@ bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::Vec1::Request& req, mrs_ms
 bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray::Request& req, mrs_msgs::ValidateReferenceArray::Response& res) {
 
   if (!is_initialized_) {
-    return false;
-  }
-
-  if (req.array.header.frame_id != octree_frame_) {
     res.success = {false};
-    res.message = "frame_id doesn't match octree frame -> cannot insert virtual obstacle";
-    return false;
+    res.message = "not yet initialized -> cannot insert virtual obstacle";
+    return true;
   }
 
   if (req.array.array.size() != 3) {
     res.success = {false};
     res.message = "array does not contain exactly 3 points -> cannot insert virtual obstacle";
-    return false;
+    return true;
   }
 
   // Define the 12 edges by point pairs
@@ -1010,7 +985,7 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
   // | -------------------- Setup vis marker -------------------- |
   visualization_msgs::Marker edges;
   auto&                      marker = obst.vis_marker;
-  marker.header.frame_id            = octree_frame_;
+  marker.header.frame_id            = req.array.header.frame_id;
   marker.header.stamp               = ros::Time::now();
   marker.ns                         = "edges";
   marker.id                         = 0;
@@ -1044,7 +1019,7 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
     _virtual_obstacles.push_back(obst);
   }
 
-  ROS_INFO("[MrsOctomapPlanner]: adding virtual obstacle");
+  ROS_INFO("[MrsOctomapPlanner] adding virtual obstacle");
   ROS_INFO("                        p1: %.1f %.1f %.1f", p1.x(), p1.y(), p1.z());
   ROS_INFO("                        p2: %.1f %.1f %.1f", p2.x(), p2.y(), p2.z());
   ROS_INFO("                        p3: %.1f %.1f %.1f", p3.x(), p3.y(), p3.z());
@@ -2430,6 +2405,11 @@ void OctomapPlanner::addVirtualObstaclesToOctree(const std::shared_ptr<OcTree_t>
   const float step = 2.0f * float(planning_tree_resolution_);
 
   for (const auto& obst : _virtual_obstacles) {
+
+    if (obst.frame_id != octree_frame_) {
+      ROS_WARN_THROTTLE(1.0, "[MrsOctomapPlanner] not adding virtual obstacle because it's frame_id (%s) doesn't match octree_frame (%s)", obst.frame_id.c_str(), octree_frame_.c_str());
+      continue;
+    }
 
     // Helper lambda to mark a rectangular face defined by origin and two edge vectors
     auto mark_face = [&](const Eigen::Vector3f& origin, const Eigen::Vector3f& edge1, const Eigen::Vector3f& edge2) {

@@ -468,8 +468,14 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   ROS_INFO("[%s]: planning tree resampling took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
   time_start = ros::Time::now();
 
+  /* ROS_ERROR("[%s]: Resampled tree size after expand = %lu, free = %d, occupied = %d.", ros::this_node::getName().c_str(), resampled_tree->size(),
+   * counter_free, counter_occ); */
+
   /* ROS_ERROR("[%s]: Orig coord = [%.2f, %.2f, %.2f].", ros::this_node::getName().c_str(), orig_coord.x(), orig_coord.y(), orig_coord.z()); */
   auto edf = euclideanDistanceTransform(resampled_tree, orig_coord);
+
+  ROS_INFO("[%s]: edf over planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
+  time_start = ros::Time::now();
 
   ROS_INFO("[%s]: edf over planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
   time_start = ros::Time::now();
@@ -488,6 +494,8 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 
   ROS_INFO("[%s]: setting node values in planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
   time_start = ros::Time::now();
+  /* ROS_ERROR("[%s]: Number of set node values based on edf = %d, free = %d, occupied = %d", ros::this_node::getName().c_str(), counter, counter_free,
+   * counter_occ); */
 
   std::vector<octomap::point3d> tunnel;
 
