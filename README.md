@@ -39,6 +39,9 @@ The **Octomap Planner** enables to switch between **MRS A* planner** implementat
 ```
 Both implementations in default setting provide the optimal path given the current map represented by an [octomap](https://octomap.github.io/). The [**MRS SubT Planner**](https://github.com/ctu-mrs/mrs_subt_planning_lib) provides functionality to push the path further from the obstacles above the specified safety distance and lowers the computational demands in the majority of path planning instances. Further, it can be parametrized to allow generation of paths up to x-times longer than optimal path, which significantly speeds up the planning process. The paths produced by **MRS A* Planner** are generally more straight, which makes the planner favoured for fast flight in open environments with low obstacle density.
 
+#### Minimal Planner
+TBW
+
 ### Planning for sensors with limited horizontal field of view
 
 The **Octomap planner** allows to sample the heading reference in a direction of flight and also with a constant _heading_offset_ from a direction of flight. The use of this feature is recommended for UAVs that build occupancy maps using sensors with a limited horizontal field of view (e.g., depth cameras) and either fly in potentially dynamic environments or apply localization methods that experience drift.
