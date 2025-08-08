@@ -27,10 +27,13 @@ set(CATKIN_DEPENDENCIES
   roscpp
   rospy
   std_msgs
+  geometry_msgs
+  message_generation
   )
 
 set(LIBRARIES
   MrsOctomapPlanner_OctomapPlanner
+  MrsOctomapPlanner_MinimalOctomapPlanner
   )
 
 find_package(catkin REQUIRED
@@ -47,11 +50,21 @@ find_package(Eigen3 REQUIRED)
 set(Eigen_INCLUDE_DIRS ${EIGEN3_INCLUDE_DIRS})
 set(Eigen_LIBRARIES ${Eigen_LIBRARIES})
 
+add_service_files(FILES
+  Path.srv
+)
+
+## Generate added messages and services with any dependencies listed here
+generate_messages(DEPENDENCIES
+  std_msgs
+  geometry_msgs
+)
+
 catkin_package(
   INCLUDE_DIRS include
   CATKIN_DEPENDS ${CATKIN_DEPENDENCIES}
   LIBRARIES ${LIBRARIES}
-  DEPENDS OCTOMAP
+  DEPENDS OCTOMAP message_runtime
   )
 
 include_directories(SYSTEM
@@ -74,6 +87,21 @@ add_dependencies(MrsOctomapPlanner_OctomapPlanner
   )
 
 target_link_libraries(MrsOctomapPlanner_OctomapPlanner
+  ${catkin_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
+  ${DYNAMICEDT3D_LIBRARIES}
+  )
+
+add_library(MrsOctomapPlanner_MinimalOctomapPlanner
+  src/minimal_octomap_planner.cpp
+  )
+
+add_dependencies(MrsOctomapPlanner_MinimalOctomapPlanner
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+  )
+
+target_link_libraries(MrsOctomapPlanner_MinimalOctomapPlanner
   ${catkin_LIBRARIES}
   ${OCTOMAP_LIBRARIES}
   ${DYNAMICEDT3D_LIBRARIES}

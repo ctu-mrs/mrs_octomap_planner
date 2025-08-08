@@ -1,0 +1,41 @@
+<launch>
+
+  <arg name="UAV_NAME" default="$(env UAV_NAME)" />
+  <arg name="LOGGER_DEBUG" default="$(optenv LOGGER_DEBUG false)" />
+
+  <env name="ROSCONSOLE_CONFIG_FILE" if="$(eval arg('LOGGER_DEBUG'))" value="$(find mrs_octomap_planner)/config/debug_verbosity.yaml" />
+
+    <!-- other args -->
+  <arg name="debug" default="false" />
+  <arg name="standalone" default="true" />
+
+  <arg     if="$(arg debug)" name="launch_prefix" value="debug_roslaunch" />
+  <arg unless="$(arg debug)" name="launch_prefix" value="" />
+
+  <arg name="nodelet_manager_name" default="" />
+  <arg     if="$(eval arg('standalone') or arg('debug'))" name="nodelet" value="standalone" />
+  <arg unless="$(eval arg('standalone') or arg('debug'))" name="nodelet" value="load" />
+  <arg     if="$(eval arg('standalone') or arg('debug'))" name="nodelet_manager" value="" />
+  <arg unless="$(eval arg('standalone') or arg('debug'))" name="nodelet_manager" value="$(arg nodelet_manager_name)" />
+
+  <group ns="$(arg UAV_NAME)">
+
+    <node pkg="nodelet" type="nodelet" name="minimal_octomap_planner" args="$(arg nodelet) mrs_octomap_planner/MinimalOctomapPlanner $(arg nodelet_manager)" output="screen" launch-prefix="$(arg launch_prefix)" respawn="false">
+
+      <rosparam file="$(find mrs_octomap_planner)/config/minimal_planner.yaml" command="load" />
+
+      <param name="uav_name" value="$(arg UAV_NAME)" />
+
+      <!-- topics in -->
+
+      <remap from="~octomap_in" to="octomap_server/octomap_local_full" />
+
+      <!-- services in -->
+
+      <remap from="~get_path_in" to="~get_path" />
+
+    </node>
+
+  </group>
+
+</launch>

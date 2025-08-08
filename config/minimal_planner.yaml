@@ -1,0 +1,15 @@
+planning_tree_resolution: 0.2
+distance_transform_distance: 20.0 # [m] from the UAV into all directions
+safe_obstacle_distance: 0.5 
+distance_penalty: 1.0 # coefficient for traveled distance from start in A* cost function
+greedy_penalty: 1.0 # coefficient for estimated distance to goal in A* cost function
+max_waypoint_distance: 0.0 # [m] // or set negative for no padding
+min_altitude: -1000.0 # [m]
+max_altitude: 1000.0 # [m]
+unknown_is_occupied: true # if false, planning through unknown space is enabled 
+timeout_threshold: 2.0 # [s] time after which A* planning is aborted and returns path to the node with the so far lowest cost   
+min_path_length: 3.0
+viz:
+  scale:
+    points: 0.05
+    lines: 0.02
