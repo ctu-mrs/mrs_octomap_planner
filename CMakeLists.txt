@@ -94,6 +94,7 @@ target_link_libraries(MrsOctomapPlanner_OctomapPlanner
 
 add_library(MrsOctomapPlanner_MinimalOctomapPlanner
   src/minimal_octomap_planner.cpp
+  src/astar_planner.cpp
   )
 
 add_dependencies(MrsOctomapPlanner_MinimalOctomapPlanner
