@@ -251,7 +251,11 @@ namespace mrs_octomap_planner
         res.path    = std::vector<geometry_msgs::Point>();
         return true;
       }
-      ROS_INFO("[MrsMinimalOctomapPlanner]: Incomplete path found");
+      
+      std::stringstream ss;
+      ss << "Incomplete path found of length = " << path.first.size();
+      ROS_INFO_STREAM("[MrsMinimalOctomapPlanner]: " << ss.str());
+      res.message = ss.str();
 
       double front_x = path.first.front().x();
       double front_y = path.first.front().y();
