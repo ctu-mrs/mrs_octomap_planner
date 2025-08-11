@@ -6,6 +6,7 @@
   <env name="ROSCONSOLE_CONFIG_FILE" if="$(eval arg('LOGGER_DEBUG'))" value="$(find mrs_octomap_planner)/config/debug_verbosity.yaml" />
 
     <!-- other args -->
+  <arg name="custom_config" default="" />
   <arg name="debug" default="false" />
   <arg name="standalone" default="true" />
 
@@ -23,6 +24,7 @@
     <node pkg="nodelet" type="nodelet" name="minimal_octomap_planner" args="$(arg nodelet) mrs_octomap_planner/MinimalOctomapPlanner $(arg nodelet_manager)" output="screen" launch-prefix="$(arg launch_prefix)" respawn="false">
 
       <rosparam file="$(find mrs_octomap_planner)/config/minimal_planner.yaml" command="load" />
+      <rosparam if="$(eval not arg('custom_config') == '')" file="$(arg custom_config)" />
 
       <param name="uav_name" value="$(arg UAV_NAME)" />
 
