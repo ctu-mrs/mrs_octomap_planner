@@ -15,13 +15,11 @@
 
 namespace mrs_octomap_planner
 {
-
   using OcTree_t          = octomap::OcTree;
   using OcTreeSharedPtr_t = std::shared_ptr<octomap::OcTree>;
 
   class MinimalOctomapPlanner : public nodelet::Nodelet
   {
-
   public:
     virtual void onInit();
 
@@ -45,7 +43,6 @@ namespace mrs_octomap_planner
     double _scale_lines_                 = 0.0;
     double _min_path_length_             = 0.0;
     bool   _unknown_is_occupied_         = false;
-
 
     std::mutex                                mutex_octree_;
     std::shared_ptr<OcTree_t>                 octree_ = nullptr;
@@ -132,7 +129,6 @@ namespace mrs_octomap_planner
     ROS_INFO("[MrsMinimalOctomapPlanner]: initialized");
   }
 
-
   void MinimalOctomapPlanner::callbackOctomap(const octomap_msgs::Octomap::ConstPtr msg)
   {
     if (!is_initialized_) {
@@ -147,12 +143,8 @@ namespace mrs_octomap_planner
       ROS_WARN_THROTTLE(1.0, "[MrsMinimalOctomapPlanner]: received map is empty!");
       return;
     }
-
-    {
-      std::scoped_lock lock(mutex_octree_);
-      octree_       = octree_local.value();
-      octree_frame_ = msg->header.frame_id;
-    }
+      mrs_lib::set_mutexed(mutex_octree_,octree_local.value(), octree_);
+      mrs_lib::set_mutexed(mutex_octree_,msg->header.frame_id, octree_frame_);
   }
 
   std::optional<OcTreeSharedPtr_t> MinimalOctomapPlanner::msgToMap(const octomap_msgs::OctomapConstPtr octomap)
@@ -167,14 +159,11 @@ namespace mrs_octomap_planner
     }
 
     if (!abstract_tree) {
-
       ROS_WARN("[MrsMinimalOctomapPlanner]: Octomap message is empty! can not convert to OcTree");
       return {};
     }
     else {
-
-      OcTreeSharedPtr_t octree_out = OcTreeSharedPtr_t(dynamic_cast<OcTree_t*>(abstract_tree));
-      return { octree_out };
+      return { OcTreeSharedPtr_t(dynamic_cast<OcTree_t*>(abstract_tree)) };
     }
   }
 
@@ -235,8 +224,9 @@ namespace mrs_octomap_planner
 
     auto path = planner.findPath(plan_from, plan_to, octree, _timeout_threshold_);
 
-    // path is complete
+    // check path
     if (path.second) {
+      // path until the end
       path.first.push_back(plan_to);
       std::stringstream ss;
       ss << "Found complete path of length = " << path.first.size();
@@ -244,6 +234,7 @@ namespace mrs_octomap_planner
       res.message = ss.str();
     }
     else {
+      // no path at all
       if (path.first.size() < 2) {
         ROS_WARN("[MrsMinimalOctomapPlanner]: No path found");
         res.success = false;
@@ -252,6 +243,7 @@ namespace mrs_octomap_planner
         return true;
       }
       
+      // path not until the end but to a closer point
       std::stringstream ss;
       ss << "Incomplete path found of length = " << path.first.size();
       ROS_INFO_STREAM("[MrsMinimalOctomapPlanner]: " << ss.str());
@@ -317,8 +309,7 @@ namespace mrs_octomap_planner
     res.path            = tf_path;
     return true;
   }
-
-}  // namespace mrs_octomap_planner
+}
 
 #include <pluginlib/class_list_macros.h>
 PLUGINLIB_EXPORT_CLASS(mrs_octomap_planner::MinimalOctomapPlanner,
