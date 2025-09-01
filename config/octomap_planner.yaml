@@ -10,7 +10,6 @@ main_timer:
 diagnostics_timer:
   rate: 10.0 # [Hz]
 
-euclidean_distance_cutoff: 1.0 # [m] maximum distance for Euclidean distance field
 safe_obstacle_distance: 
   default: 1.0 # [m]
   min: 0.6 # [m]
@@ -93,3 +92,6 @@ scope_timer:
 
 restart_planner_on_deadlock: true
 planner_deadlock_timeout_factor: 5.0 # deadlock will be detected after this factor times timeout threshold will be exceeded 
+
+virtual_obstacle_publishing_timer: 
+  rate: 0.5 # [s]

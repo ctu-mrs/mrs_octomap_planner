@@ -3,6 +3,7 @@
     <description>MRS Octomap Planner nodelet</description>
   </class>
 </library>
+
 <library path="lib/libMrsOctomapPlanner_MinimalOctomapPlanner">
   <class name="mrs_octomap_planner/MinimalOctomapPlanner" type="mrs_octomap_planner::MinimalOctomapPlanner" base_class_type="nodelet::Nodelet">
     <description>MRS Minimal Octomap Planner nodelet</description>

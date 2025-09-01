@@ -50,6 +50,7 @@
       <remap from="~set_safety_distance_in" to="~distance" />
       <remap from="~set_max_altitude_in" to="~altitude" />
       <remap from="~add_virtual_obstacle_in" to="~add_virtual_obstacle" />
+      <remap from="~remove_virtual_obstacles_in" to="~remove_virtual_obstacles" />
 
       <!-- services out -->
 
