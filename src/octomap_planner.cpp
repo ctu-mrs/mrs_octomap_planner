@@ -912,6 +912,8 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
     ref_stamped.header               = req.array.header;
     ref_stamped.reference            = point_ref;
 
+    ROS_INFO("[OctomapPlanner]: Input obstacle point = [%.2f, %.2f, %.2f]", point_ref.position.x, point_ref.position.y,  point_ref.position.z);
+
     auto res_t = transformer_->transformSingle(ref_stamped, octree_frame);
 
     if (!res_t) {
@@ -922,6 +924,8 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
     }
 
     virt_obst_in_octree_frame.push_back(res_t.value().reference);
+    ROS_INFO("[OctomapPlanner]: Transformed obstacle point = [%.2f, %.2f, %.2f]", virt_obst_in_octree_frame.back().position.x, virt_obst_in_octree_frame.back().position.y,  virt_obst_in_octree_frame.back().position.z);
+
   }
 
   // Define the 12 edges by point pairs
@@ -932,7 +936,7 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
   };
 
   VirtualObstacle_t obst;
-  obst.frame_id = octree_frame_;
+  obst.frame_id = octree_frame;
   obst.vertices.resize(8);
   obst.uvw.resize(3);
 
@@ -979,13 +983,13 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
   // | -------------------- Setup vis marker -------------------- |
   visualization_msgs::Marker edges;
   auto&                      marker = obst.vis_marker;
-  marker.header.frame_id            = req.array.header.frame_id;
+  marker.header.frame_id            = octree_frame;
   marker.header.stamp               = ros::Time::now();
   marker.ns                         = "edges";
   marker.id                         = 0;
   marker.type                       = visualization_msgs::Marker::LINE_LIST;
   marker.action                     = visualization_msgs::Marker::ADD;
-  marker.scale.x                    = 0.02;  // line width
+  marker.scale.x                    = 0.04;  // line width
 
   marker.color.r = 1.0;
   marker.color.g = 0.0;
@@ -1219,7 +1223,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       /* check if goal was reached */ /*//{*/
       if ((plan_from - user_goal_octpoint).norm() <= _min_path_length_ &&
-          mrs_lib::geometry::radians::dist(initial_condition.value().reference.heading, user_goal_.heading) < 0.1) {
+          mrs_lib::geometry::radians::dist(initial_condition.value().reference.heading, user_goal_.heading) < _min_path_heading_change_) {
 
         ROS_INFO_THROTTLE(1.0, "[MrsOctomapPlanner]: we reached the target");
         changeState(STATE_IDLE);
@@ -1343,7 +1347,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
           break;
         }
 
-        ROS_INFO("[MrsOctomapPlanner]: Path is not complete  but found");
+        ROS_INFO("[MrsOctomapPlanner]: Path is not complete but found");
 
         double front_x = waypoints.first.front().x();
         double front_y = waypoints.first.front().y();
