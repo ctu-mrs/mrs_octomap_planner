@@ -674,7 +674,7 @@ bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::Trigger::Request& r
 
 /* callbackGoto() //{ */
 
-bool OctomapPlanner::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
+bool OctomapPlanner::callbackGoto(mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
 
   /* prerequisities //{ */
 
@@ -749,7 +749,7 @@ bool OctomapPlanner::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req,
 
 /* callbackReference() //{ */
 
-bool OctomapPlanner::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res) {
+bool OctomapPlanner::callbackReference(mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res) {
 
   /* prerequisities //{ */
 
@@ -772,12 +772,31 @@ bool OctomapPlanner::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStamp
 
   // | -------- transform the reference to the map frame -------- |
   {
-    std::scoped_lock lock(mutex_user_goal_);
-    user_goal_.position.x   = req.reference.position.x;
-    user_goal_.position.y   = req.reference.position.y;
-    user_goal_.position.z   = req.reference.position.z;
-    user_goal_.heading      = req.reference.heading;
-    new_user_goal_received_ = true;
+
+    mrs_msgs::ReferenceStamped ref_stamped;
+    ref_stamped.header    = req.header;
+    ref_stamped.reference = req.reference;
+
+    auto result = transformer_->transformSingle(ref_stamped, octree_frame_);
+
+    if (result) {
+
+      std::scoped_lock lock(mutex_user_goal_);
+
+      user_goal_              = result.value().reference;
+      new_user_goal_received_ = true;
+
+    } else {
+      std::stringstream ss;
+      ss << "could not transform the reference from " << ref_stamped.header.frame_id << " to " << octree_frame_;
+
+      ROS_ERROR_STREAM("[MrsOctomapPlanner]: " << ss.str());
+
+      res.success = false;
+      res.message = ss.str();
+      return true;
+    }
+
   }
 
   interrupted_ = false;
@@ -800,7 +819,7 @@ bool OctomapPlanner::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStamp
 
 /* callbackSetPlanner() //{ */
 
-bool OctomapPlanner::callbackSetPlanner([[maybe_unused]] mrs_msgs::String::Request& req, mrs_msgs::String::Response& res) {
+bool OctomapPlanner::callbackSetPlanner(mrs_msgs::String::Request& req, mrs_msgs::String::Response& res) {
 
   if (!is_initialized_) {
     return false;
@@ -1018,9 +1037,9 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
   }
 
   ROS_INFO("[MrsOctomapPlanner] adding virtual obstacle");
+  ROS_INFO("                        p0: %.1f %.1f %.1f", p0.x(), p0.y(), p0.z());
   ROS_INFO("                        p1: %.1f %.1f %.1f", p1.x(), p1.y(), p1.z());
   ROS_INFO("                        p2: %.1f %.1f %.1f", p2.x(), p2.y(), p2.z());
-  ROS_INFO("                        p3: %.1f %.1f %.1f", p3.x(), p3.y(), p3.z());
 
   res.success = {true};
   res.message = "obstacle added";
