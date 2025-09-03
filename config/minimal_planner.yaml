@@ -1,0 +1,16 @@
+planning_tree_resolution: 0.4 # [m] min side length of each voxel in the octomap, should be set the same as octomap_mapping 
+distance_transform_distance: 20.0 # [m] from the UAV into all directions
+safe_obstacle_distance: 0.5 # [m] distance around occupied cells that is also deemed as occupied, should be atleast uav_radius / 2
+distance_penalty: 1.0 # coefficient for traveled distance from start in A* cost function
+greedy_penalty: 1.0 # coefficient for estimated distance to goal in A* cost function
+max_waypoint_distance: -1.0 # [m] // or set negative for no padding
+min_altitude: -1000.0 # [m]
+max_altitude: 1000.0 # [m]
+unknown_is_occupied: false # if false, planning through unknown space is enabled 
+timeout_threshold: 3.0 # [s] time after which A* planning is aborted and returns path to the node with the so far lowest cost   
+min_path_length: 0.5 # [m] paths shorter than this distnace are ignored to prevent very small possibly oscillatory movements
+# used for visualizing the planner cells using BatchVisualizer
+viz:
+  scale:
+    points: 0.05
+    lines: 0.02

@@ -26,6 +26,9 @@
   <depend>std_msgs</depend>
   <depend>dynamic_edt_3d</depend>
   <depend>mrs_octomap_tools</depend>
+  <depend>geometry_msgs</depend>
+  <depend>message_generation</depend>
+  <depend>message_runtime</depend>
 
   <export>
     <nodelet plugin="${prefix}/nodelets.xml" />

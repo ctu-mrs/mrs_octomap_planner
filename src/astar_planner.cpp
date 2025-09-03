@@ -80,7 +80,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   ros::Time time_start_planning_tree = ros::Time::now();
   auto      tree_with_tunnel         = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution, start_coord, 10.0);
-  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.2f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
+  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.4f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
 
   if (!tree_with_tunnel) {
     ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a planning tree");
@@ -145,6 +145,8 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   ROS_INFO_STREAM("[Astar]: Planning from: " << planning_start.x() << ", " << planning_start.y() << ", " << planning_start.z());
   ROS_INFO_STREAM("[Astar]: Planning to: " << map_goal.x() << ", " << map_goal.y() << ", " << map_goal.z());
 
+  auto time_start_planning = ros::Time::now();
+
   Node first;
   first.key        = start;
   first.cum_dist   = 0;
@@ -173,7 +175,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     if (time_now.toSec() - time_start.toSec() > timeout_threshold) {
 
-      ROS_WARN("[Astar]: Planning timeout! Using current best node as goal.");
+      ROS_WARN("[Astar]: Planning timeout (%.4f s after start of search)! Using current best node as goal.", (ros::Time::now() - time_start_planning).toSec());
       auto path_keys = backtrackPathKeys(best_node == first ? best_node_greedy : best_node, first, parent_map);
       ROS_INFO("[Astar]: Path found. Length: %ld", path_keys.size());
 
@@ -193,7 +195,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       auto path_keys = backtrackPathKeys(current, first, parent_map);
       path_keys.push_back(tree.coordToKey(map_goal));
-      ROS_INFO("[Astar]: Path found. Length: %ld", path_keys.size());
+      ROS_INFO("[Astar]: Path found. Length: %ld. Search time: %.4f", path_keys.size(), (ros::Time::now() - time_start_planning).toSec());
 
       bv->clearVisuals();
       bv->clearBuffers();
@@ -255,7 +257,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     auto path_keys = backtrackPathKeys(best_node, first, parent_map);
 
-    ROS_INFO("[Astar]: direct path does not exist, goint to the 'best_node'");
+    ROS_INFO("[Astar]: direct path does not exist, going to the 'best_node', search time: %.4f", (ros::Time::now() - time_start_planning).toSec());
 
     return std::make_pair(prepareOutputPath(path_keys, tree), false);
   }
@@ -264,12 +266,12 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     auto path_keys = backtrackPathKeys(best_node_greedy, first, parent_map);
 
-    ROS_INFO("[Astar]: direct path does not exist, goint to the best_node_greedy'");
+    ROS_INFO("[Astar]: direct path does not exist, going to the best_node_greedy', search time: %.4f", (ros::Time::now() - time_start_planning).toSec());
 
     return std::make_pair(prepareOutputPath(path_keys, tree), false);
   }
 
-  ROS_WARN("[Astar]: PATH DOES NOT EXIST!");
+  ROS_WARN("[Astar]: PATH DOES NOT EXIST! Search time: %.4f", (ros::Time::now() - time_start_planning).toSec());
 
   return {std::vector<octomap::point3d>(), false};
 }
@@ -403,10 +405,7 @@ std::vector<octomap::point3d> AstarPlanner::keysToCoords(std::vector<octomap::Oc
 
 /* euclideanDistanceTransform() //{ */
 
-DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &orig_coord, double radius) {
-
-  /* octomap::point3d metric_min(orig_coord.x() - radius, orig_coord.y() - radius, orig_coord.z() - radius); */
-  /* octomap::point3d metric_max(orig_coord.x() + radius, orig_coord.y() + radius, orig_coord.z() + radius); */
+DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &orig_coord) {
 
   double x, y, z;
 
@@ -431,6 +430,8 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 
   /* resample the incoming map to the desired resolution //{ */
 
+  auto time_start = ros::Time::now();
+
   std::shared_ptr<octomap::OcTree> resampled_tree = std::make_shared<octomap::OcTree>(resolution);
   resampled_tree->setOccupancyThres(tree->getOccupancyThres());
   resampled_tree->setProbHit(tree->getProbHit());
@@ -444,10 +445,6 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   octomap::point3d p_min(start.x() - submap_distance, start.y() - submap_distance, start.z() - submap_distance);
   octomap::point3d p_max(start.x() + submap_distance, start.y() + submap_distance, start.z() + submap_distance);
 
-  /* int fractor = resolution < tree->getResolution() ? 0 : (resolution / tree->getResolution() / 2); */
-  /* ROS_INFO("[%s]: fractor = %d", ros::this_node::getName().c_str(), fractor); */
-
-  int counter = 0, counter_free = 0, counter_occ = 0;
   for (octomap::OcTree::leaf_bbx_iterator it = tree->begin_leafs_bbx(p_min, p_max, tree->getTreeDepth()), end = tree->end_leafs_bbx(); it != end; ++it) {
 
     auto orig_key = it.getKey();
@@ -461,52 +458,42 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 
     if (tree->isNodeOccupied(*it)) {
       new_node->setLogOdds(1.0);
-      counter_occ++;
     } else {
       new_node->setLogOdds(-1.0);
-      counter_free++;
     }
-    counter++;
   }
-
-  /* ROS_ERROR("[%s]: Number of leafs in bbx = %d, free =%d, occupied=%d, resampled tree size = %lu.", ros::this_node::getName().c_str(), counter, counter_free,
-   * counter_occ, resampled_tree->size()); */
 
   resampled_tree->expand();
 
-  counter = counter_free = counter_occ = 0;
-
-  for (octomap::OcTree::leaf_bbx_iterator it = tree->begin_leafs_bbx(p_min, p_max, tree->getTreeDepth()), end = tree->end_leafs_bbx(); it != end; ++it) {
-
-    if (tree->isNodeOccupied(*it)) {
-      counter_occ++;
-    } else {
-      counter_free++;
-    }
-  }
+  ROS_INFO("[%s]: planning tree resampling took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
+  time_start = ros::Time::now();
 
   /* ROS_ERROR("[%s]: Resampled tree size after expand = %lu, free = %d, occupied = %d.", ros::this_node::getName().c_str(), resampled_tree->size(),
    * counter_free, counter_occ); */
 
   /* ROS_ERROR("[%s]: Orig coord = [%.2f, %.2f, %.2f].", ros::this_node::getName().c_str(), orig_coord.x(), orig_coord.y(), orig_coord.z()); */
-  auto edf = euclideanDistanceTransform(resampled_tree, orig_coord, radius);
+  auto edf = euclideanDistanceTransform(resampled_tree, orig_coord);
+
+  ROS_INFO("[%s]: edf over planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
+  time_start = ros::Time::now();
+
+  ROS_INFO("[%s]: edf over planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
+  time_start = ros::Time::now();
 
   //}
 
   std::shared_ptr<octomap::OcTree> binary_tree = std::make_shared<octomap::OcTree>(resolution);
 
-  counter = counter_free = counter_occ = 0;
   for (auto it = resampled_tree->begin(); it != resampled_tree->end(); it++) {
     if (edf.getDistance(it.getCoordinate()) <= safe_obstacle_distance) {
       binary_tree->setNodeValue(it.getCoordinate(), TreeValue::OCCUPIED);  // occupied
-      counter_occ++;
     } else {
-      counter_free++;
       binary_tree->setNodeValue(it.getCoordinate(), TreeValue::FREE);  // free and safe
     }
-    counter++;
   }
 
+  ROS_INFO("[%s]: setting node values in planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
+  time_start = ros::Time::now();
   /* ROS_ERROR("[%s]: Number of set node values based on edf = %d, free = %d, occupied = %d", ros::this_node::getName().c_str(), counter, counter_free,
    * counter_occ); */
 
@@ -538,11 +525,12 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
       edf.getDistanceAndClosestObstacle(current_coords, obstacle_dist, closest_obstacle);
       octomap::point3d dir_away_from_obstacle = current_coords - closest_obstacle;
 
-      if (obstacle_dist >= safe_obstacle_distance) {
-        ROS_INFO("[%s]: tunnel create with %d", ros::this_node::getName().c_str(), int(tunnel.size()));
+      if (obstacle_dist >= float(safe_obstacle_distance)) {
+        ROS_INFO("[%s]: tunnel create with %d, final obstacle dist = %.4f", ros::this_node::getName().c_str(), int(tunnel.size()), obstacle_dist);
         break;
       }
 
+      ROS_INFO("[%s]: binary tree resolution = %.2f", ros::this_node::getName().c_str(), float(binary_tree->getResolution()));
       current_coords += dir_away_from_obstacle.normalized() * float(binary_tree->getResolution());
 
       int iter2 = 0;
@@ -554,11 +542,15 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
         }
 
         current_coords += dir_away_from_obstacle.normalized() * float(binary_tree->getResolution());
+
       }
 
       binary_tree_query = binary_tree->search(current_coords);
     }
   }
+
+  ROS_INFO("[%s]: tunneling in planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
+  time_start = ros::Time::now();
 
   std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>> result = {binary_tree, tunnel};
 

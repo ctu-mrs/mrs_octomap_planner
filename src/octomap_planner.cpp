@@ -33,6 +33,7 @@
 #include <mrs_msgs/Vec4.h>
 #include <mrs_msgs/Vec1.h>
 #include <mrs_msgs/ReferenceStampedSrv.h>
+#include <mrs_msgs/ValidateReferenceArray.h>
 #include <mrs_msgs/GetPathSrv.h>
 #include <mrs_msgs/String.h>
 #include <mrs_msgs/MpcPredictionFullState.h>
@@ -48,6 +49,9 @@
 #include <astar_planner.hpp>
 #include <mrs_subt_planning_lib/astar_planner.h>
 
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
+
 //}
 
 namespace mrs_octomap_planner
@@ -61,6 +65,15 @@ typedef enum
   STATE_PLANNING,
   STATE_MOVING,
 } State_t;
+
+struct VirtualObstacle_t
+{
+  std::string                  frame_id;
+  float                        height;
+  std::vector<Eigen::Vector3f> vertices;
+  std::vector<Eigen::Vector3f> uvw;
+  visualization_msgs::Marker   vis_marker;
+};
 
 const std::string _state_names_[] = {"IDLE", "PLANNING", "MOVING"};
 
@@ -95,8 +108,10 @@ private:
   double _rate_main_timer_;
   double _rate_diagnostics_timer_;
   double _rate_future_check_timer_;
+  double _rate_virtual_obstacle_pub_timer_;
   double _replan_after_;
   double _min_path_length_;
+  double _min_path_heading_change_;
   bool   _unknown_is_occupied_;
   bool   _use_subt_planner_;
   bool   _subt_make_path_straight_;
@@ -127,6 +142,11 @@ private:
   int    _min_allowed_trajectory_points_after_crop_;
   bool   _scope_timer_enabled_;
   double _scope_timer_duration_;
+  double _goal_reached_dist_;
+  int    _max_attempts_to_replan_;
+  double _min_dist_to_goal_improvement_;         // minimum improvement of distance of last waypoint to goal in two consecutive replanning steps
+  double _max_goal_dist_to_disable_replanning_;  // maximum distance for which the replanning can be disabled when there is a risk of oscillations
+  bool   _use_user_heading_for_final_point_;
 
   double     _max_altitude_;
   std::mutex mutex_max_altitude_;
@@ -149,8 +169,13 @@ private:
 
   ros::Time  planner_time_flag_;
   std::mutex mutex_planner_time_flag_;
-  bool _restart_planner_on_deadlock_;
-  double planner_deadlock_timeout_;
+  bool       _restart_planner_on_deadlock_;
+  double     planner_deadlock_timeout_;
+
+  // virtual obstacles params
+  std::mutex                     mutex_virtual_obstacles_;
+  std::vector<VirtualObstacle_t> virtual_obstacles_;
+  void                           addVirtualObstaclesToOctree(const std::shared_ptr<OcTree_t> octree);
 
   // visualizer params
   double _points_scale_;
@@ -179,6 +204,7 @@ private:
 
   // publishers
   ros::Publisher pub_diagnostics_;
+  ros::Publisher pub_virtual_obstacles_;
 
   // subscriber callbacks
   void callbackTrackerCmd(const mrs_msgs::TrackerCommand::ConstPtr msg);
@@ -191,14 +217,18 @@ private:
   ros::ServiceServer service_server_set_planner_;
   ros::ServiceServer service_server_set_safety_distance_;
   ros::ServiceServer service_server_set_max_altitude_;
+  ros::ServiceServer service_server_add_virtual_obstacle_;
+  ros::ServiceServer service_server_remove_virtual_obstacles_;
 
   // service server callbacks
-  bool callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res);
-  bool callbackStop([[maybe_unused]] std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
-  bool callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res);
-  bool callbackSetPlanner([[maybe_unused]] mrs_msgs::String::Request& req, mrs_msgs::String::Response& res);
+  bool callbackGoto(mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res);
+  bool callbackStop(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+  bool callbackReference(mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res);
+  bool callbackSetPlanner(mrs_msgs::String::Request& req, mrs_msgs::String::Response& res);
   bool callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs_msgs::Vec1::Response& res);
   bool callbackSetMaxAltitude(mrs_msgs::Vec1::Request& req, mrs_msgs::Vec1::Response& res);
+  bool callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray::Request& req, mrs_msgs::ValidateReferenceArray::Response& res);
+  bool callbackRemoveVirtualObstacles(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
 
   // service clients
   mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>             sc_get_trajectory_;
@@ -214,6 +244,9 @@ private:
 
   ros::Timer timer_future_check_;
   void       timerFutureCheck([[maybe_unused]] const ros::TimerEvent& evt);
+
+  ros::Timer timer_publish_virtual_obstacles_;
+  void       timerPublishVirtualObstacles([[maybe_unused]] const ros::TimerEvent& evt);
 
   // diagnostics
   mrs_modules_msgs::OctomapPlannerDiagnostics diagnostics_;
@@ -233,7 +266,10 @@ private:
   // planning
   std::atomic<int> replanning_counter_ = 0;
   ros::Time        time_last_plan_;
-  int              path_id_ = 0;
+  int              path_id_                         = 0;
+  bool             new_user_goal_received_          = false;
+  bool             first_planning_for_current_goal_ = false;
+  bool             detected_collision_              = false;
 
   // state machine
   std::atomic<State_t> state_;
@@ -302,8 +338,8 @@ void OctomapPlanner::onInit() {
   param_loader.loadParam("main_timer/rate", _rate_main_timer_);
   param_loader.loadParam("diagnostics_timer/rate", _rate_diagnostics_timer_);
   param_loader.loadParam("future_check_timer/rate", _rate_future_check_timer_);
+  param_loader.loadParam("virtual_obstacle_publishing_timer/rate", _rate_virtual_obstacle_pub_timer_);
 
-  param_loader.loadParam("euclidean_distance_cutoff", _euclidean_distance_cutoff_);
   param_loader.loadParam("safe_obstacle_distance/default", _safe_obstacle_distance_);
   param_loader.loadParam("safe_obstacle_distance/min", _safe_obstacle_distance_min_);
   param_loader.loadParam("safe_obstacle_distance/max", _safe_obstacle_distance_max_);
@@ -321,6 +357,12 @@ void OctomapPlanner::onInit() {
   param_loader.loadParam("time_for_trajectory_generator", _time_for_trajectory_generator_);
   param_loader.loadParam("replan_after", _replan_after_);
   param_loader.loadParam("min_path_length", _min_path_length_);
+  param_loader.loadParam("min_path_heading_change", _min_path_heading_change_);
+  param_loader.loadParam("goal_reached_dist", _goal_reached_dist_);
+  param_loader.loadParam("max_attempts_to_replan", _max_attempts_to_replan_);
+  param_loader.loadParam("min_dist_to_goal_improvement", _min_dist_to_goal_improvement_);
+  param_loader.loadParam("max_goal_dist_to_disable_replanning", _max_goal_dist_to_disable_replanning_);
+  param_loader.loadParam("use_user_heading_for_final_point", _use_user_heading_for_final_point_);
   param_loader.loadParam("trajectory_generator/input_trajectory_length", _trajectory_generation_input_length_);
   param_loader.loadParam("trajectory_generator/use_heading", _trajectory_generation_use_heading_);
   param_loader.loadParam("trajectory_generator/relax_heading", _trajectory_generation_relax_heading_);
@@ -360,17 +402,27 @@ void OctomapPlanner::onInit() {
     ros::shutdown();
   }
 
+  if (_goal_reached_dist_ < 2 * planning_tree_resolution_) {
+    ROS_WARN(
+        "[OctomapPlanner]: Cannot set %.2f as goal reached dist for planning tree resolution %.2f. Setting goal reached distance to %.2f to prevent deadlocks.",
+        _goal_reached_dist_, planning_tree_resolution_, 2 * planning_tree_resolution_);
+    _goal_reached_dist_ = 2 * planning_tree_resolution_;
+  }
+
+  _euclidean_distance_cutoff_ = _safe_obstacle_distance_ + 0.01; // adaptation to prevent UAV being stuck
+
   // set planner deadlock timeout
   if (_restart_planner_on_deadlock_) {
 
-    if (_planner_deadlock_timeout_factor < 3.0) { 
-      ROS_WARN("[MrsOctomapPlanner]: Timeout factor for planner deadlock detection was set too low (< 3.0). Setting factor to 3.0 to prevent premature killing of the planner.");
+    if (_planner_deadlock_timeout_factor < 3.0) {
+      ROS_WARN(
+          "[MrsOctomapPlanner]: Timeout factor for planner deadlock detection was set too low (< 3.0). Setting factor to 3.0 to prevent premature killing of "
+          "the planner.");
       _planner_deadlock_timeout_factor = 3.0;
     }
 
     planner_deadlock_timeout_ = _planner_deadlock_timeout_factor * _timeout_threshold_;
     ROS_INFO("[MrsOctomapPlanner]: Planner deadlock timeout set to %.2f s.", planner_deadlock_timeout_);
-
   }
 
   octree_ = nullptr;
@@ -381,7 +433,8 @@ void OctomapPlanner::onInit() {
 
   // | ----------------------- publishers ----------------------- |
 
-  pub_diagnostics_ = nh_.advertise<mrs_modules_msgs::OctomapPlannerDiagnostics>("diagnostics_out", 1);
+  pub_diagnostics_       = nh_.advertise<mrs_modules_msgs::OctomapPlannerDiagnostics>("diagnostics_out", 1);
+  pub_virtual_obstacles_ = nh_.advertise<visualization_msgs::MarkerArray>("virtual_obstacles_out", 1);
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -394,8 +447,7 @@ void OctomapPlanner::onInit() {
   shopts.queue_size         = 1;
   shopts.transport_hints    = ros::TransportHints().tcpNoDelay();
 
-  sh_tracker_cmd_ = mrs_lib::SubscribeHandler<mrs_msgs::TrackerCommand>(shopts, "tracker_cmd_in", ros::Duration(3.0), &OctomapPlanner::timeoutTrackerCmd, this,
-                                                                        &OctomapPlanner::callbackTrackerCmd, this);
+  sh_tracker_cmd_ = mrs_lib::SubscribeHandler<mrs_msgs::TrackerCommand>(shopts, "tracker_cmd_in", ros::Duration(3.0), &OctomapPlanner::timeoutTrackerCmd, this);
   sh_octomap_     = mrs_lib::SubscribeHandler<octomap_msgs::Octomap>(shopts, "octomap_in", ros::Duration(5.0), &OctomapPlanner::timeoutOctomap, this,
                                                                  &OctomapPlanner::callbackOctomap, this);
 
@@ -409,15 +461,6 @@ void OctomapPlanner::onInit() {
   sc_get_trajectory_       = mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>(nh_, "trajectory_generation_out");
   sc_trajectory_reference_ = mrs_lib::ServiceClientHandler<mrs_msgs::TrajectoryReferenceSrv>(nh_, "trajectory_reference_out");
   sc_hover_                = mrs_lib::ServiceClientHandler<std_srvs::Trigger>(nh_, "hover_out");
-
-  // | --------------------- service servers -------------------- |
-
-  service_server_goto_                = nh_.advertiseService("goto_in", &OctomapPlanner::callbackGoto, this);
-  service_server_stop_                = nh_.advertiseService("stop_in", &OctomapPlanner::callbackStop, this);
-  service_server_reference_           = nh_.advertiseService("reference_in", &OctomapPlanner::callbackReference, this);
-  service_server_set_planner_         = nh_.advertiseService("planner_type_in", &OctomapPlanner::callbackSetPlanner, this);
-  service_server_set_safety_distance_ = nh_.advertiseService("set_safety_distance_in", &OctomapPlanner::callbackSetSafetyDistance, this);
-  service_server_set_max_altitude_    = nh_.advertiseService("set_max_altitude_in", &OctomapPlanner::callbackSetMaxAltitude, this);
 
   // | ----------------------- transformer ---------------------- |
 
@@ -441,10 +484,21 @@ void OctomapPlanner::onInit() {
 
   // | ------------------------- timers ------------------------- |
 
-  timer_main_         = nh_.createTimer(ros::Rate(_rate_main_timer_), &OctomapPlanner::timerMain, this);
-  timer_future_check_ = nh_.createTimer(ros::Rate(_rate_future_check_timer_), &OctomapPlanner::timerFutureCheck, this);
-  timer_diagnostics_  = nh_.createTimer(ros::Rate(_rate_diagnostics_timer_), &OctomapPlanner::timerDiagnostics, this);
+  timer_main_                      = nh_.createTimer(ros::Rate(_rate_main_timer_), &OctomapPlanner::timerMain, this);
+  timer_future_check_              = nh_.createTimer(ros::Rate(_rate_future_check_timer_), &OctomapPlanner::timerFutureCheck, this);
+  timer_diagnostics_               = nh_.createTimer(ros::Rate(_rate_diagnostics_timer_), &OctomapPlanner::timerDiagnostics, this);
+  timer_publish_virtual_obstacles_ = nh_.createTimer(ros::Rate(_rate_virtual_obstacle_pub_timer_), &OctomapPlanner::timerPublishVirtualObstacles, this);
 
+  // | --------------------- service servers -------------------- |
+
+  service_server_goto_                 = nh_.advertiseService("goto_in", &OctomapPlanner::callbackGoto, this);
+  service_server_stop_                 = nh_.advertiseService("stop_in", &OctomapPlanner::callbackStop, this);
+  service_server_reference_            = nh_.advertiseService("reference_in", &OctomapPlanner::callbackReference, this);
+  service_server_set_planner_          = nh_.advertiseService("planner_type_in", &OctomapPlanner::callbackSetPlanner, this);
+  service_server_set_safety_distance_  = nh_.advertiseService("set_safety_distance_in", &OctomapPlanner::callbackSetSafetyDistance, this);
+  service_server_set_max_altitude_     = nh_.advertiseService("set_max_altitude_in", &OctomapPlanner::callbackSetMaxAltitude, this);
+  service_server_add_virtual_obstacle_ = nh_.advertiseService("add_virtual_obstacle_in", &OctomapPlanner::callbackAddVirtualObstacle, this);
+  service_server_remove_virtual_obstacles_ = nh_.advertiseService("remove_virtual_obstacles_in", &OctomapPlanner::callbackRemoveVirtualObstacles, this);
 
   // | --------------------- finish the init -------------------- |
 
@@ -456,19 +510,6 @@ void OctomapPlanner::onInit() {
 //}
 
 // | ------------------------ callbacks ----------------------- |
-
-/* callbackPositionCmd() //{ */
-
-void OctomapPlanner::callbackTrackerCmd([[maybe_unused]] const mrs_msgs::TrackerCommand::ConstPtr msg) {
-
-  if (!is_initialized_) {
-    return;
-  }
-
-  ROS_INFO_ONCE("[MrsOctomapPlanner]: getting tracker cmd");
-}
-
-//}
 
 /* timeoutTrackerCmd() //{ */
 
@@ -519,6 +560,10 @@ void OctomapPlanner::callbackOctomap(const octomap_msgs::Octomap::ConstPtr msg) 
     /* copyLocalMap(*octree_local, octree_global_); */
 
     octree_ = octree_local.value();
+    {
+      std::scoped_lock lock(mutex_virtual_obstacles_);
+      addVirtualObstaclesToOctree(octree_);
+    }
 
     octree_frame_ = msg->header.frame_id;
   }
@@ -629,7 +674,7 @@ bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::Trigger::Request& r
 
 /* callbackGoto() //{ */
 
-bool OctomapPlanner::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
+bool OctomapPlanner::callbackGoto(mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
 
   /* prerequisities //{ */
 
@@ -669,7 +714,8 @@ bool OctomapPlanner::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req,
 
       std::scoped_lock lock(mutex_user_goal_);
 
-      user_goal_ = result.value().reference;
+      user_goal_              = result.value().reference;
+      new_user_goal_received_ = true;
 
     } else {
       std::stringstream ss;
@@ -703,7 +749,7 @@ bool OctomapPlanner::callbackGoto([[maybe_unused]] mrs_msgs::Vec4::Request& req,
 
 /* callbackReference() //{ */
 
-bool OctomapPlanner::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res) {
+bool OctomapPlanner::callbackReference(mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res) {
 
   /* prerequisities //{ */
 
@@ -725,25 +771,24 @@ bool OctomapPlanner::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStamp
   //}
 
   // | -------- transform the reference to the map frame -------- |
-
   {
-    mrs_msgs::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
 
-    mrs_msgs::ReferenceStamped reference;
-    reference.header    = req.header;
-    reference.reference = req.reference;
+    mrs_msgs::ReferenceStamped ref_stamped;
+    ref_stamped.header    = req.header;
+    ref_stamped.reference = req.reference;
 
-    auto result = transformer_->transformSingle(reference, octree_frame_);
+    auto result = transformer_->transformSingle(ref_stamped, octree_frame_);
 
     if (result) {
 
       std::scoped_lock lock(mutex_user_goal_);
 
-      user_goal_ = result.value().reference;
+      user_goal_              = result.value().reference;
+      new_user_goal_received_ = true;
 
     } else {
       std::stringstream ss;
-      ss << "could not transform the reference from " << req.header.frame_id << " to " << octree_frame_;
+      ss << "could not transform the reference from " << ref_stamped.header.frame_id << " to " << octree_frame_;
 
       ROS_ERROR_STREAM("[MrsOctomapPlanner]: " << ss.str());
 
@@ -751,6 +796,7 @@ bool OctomapPlanner::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStamp
       res.message = ss.str();
       return true;
     }
+
   }
 
   interrupted_ = false;
@@ -773,7 +819,7 @@ bool OctomapPlanner::callbackReference([[maybe_unused]] mrs_msgs::ReferenceStamp
 
 /* callbackSetPlanner() //{ */
 
-bool OctomapPlanner::callbackSetPlanner([[maybe_unused]] mrs_msgs::String::Request& req, mrs_msgs::String::Response& res) {
+bool OctomapPlanner::callbackSetPlanner(mrs_msgs::String::Request& req, mrs_msgs::String::Response& res) {
 
   if (!is_initialized_) {
     return false;
@@ -810,7 +856,8 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
     {
       std::scoped_lock lock(mutex_safety_distance_);
 
-      _safe_obstacle_distance_ = req.goal;
+      _safe_obstacle_distance_    = req.goal;
+      _euclidean_distance_cutoff_ = _safe_obstacle_distance_ + 0.01; // needed for correct function of MRS planner
     }
 
     ROS_INFO("[MrsOctomapPlanner]: setting safety distance to %.2f m.", _safe_obstacle_distance_);
@@ -818,7 +865,8 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
 
   } else {
 
-    ROS_WARN("[MrsOctomapPlanner]: failed to set safety distance %.2f m (outside the allowed range [%.2f, %.2f])", req.goal, _safe_obstacle_distance_min_, _safe_obstacle_distance_max_);
+    ROS_WARN("[MrsOctomapPlanner]: failed to set safety distance %.2f m (outside the allowed range [%.2f, %.2f])", req.goal, _safe_obstacle_distance_min_,
+             _safe_obstacle_distance_max_);
     res.success = false;
   }
 
@@ -856,6 +904,183 @@ bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::Vec1::Request& req, mrs_ms
 }
 
 //}
+//
+/* callbackAddVirtualObstacle() //{ */
+
+bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray::Request& req, mrs_msgs::ValidateReferenceArray::Response& res) {
+
+  if (!is_initialized_) {
+    res.success = {false};
+    res.message = "not yet initialized -> cannot insert virtual obstacle";
+    return true;
+  }
+
+  if (req.array.array.size() != 3) {
+    res.success = {false};
+    res.message = "array does not contain exactly 3 points -> cannot insert virtual obstacle";
+    return true;
+  }
+
+  // Transform points to octree frame
+  std::string octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
+  std::vector<mrs_msgs::Reference> virt_obst_in_octree_frame; 
+
+  for (auto& point_ref : req.array.array) {
+    
+    mrs_msgs::ReferenceStamped ref_stamped;
+    ref_stamped.header               = req.array.header;
+    ref_stamped.reference            = point_ref;
+
+    ROS_INFO("[OctomapPlanner]: Input obstacle point = [%.2f, %.2f, %.2f]", point_ref.position.x, point_ref.position.y,  point_ref.position.z);
+
+    auto res_t = transformer_->transformSingle(ref_stamped, octree_frame);
+
+    if (!res_t) {
+      res.success = {false};
+      res.message = "could not transform virtual obstacle to the map frame";
+      ROS_ERROR("[MrsOctomapPlanner]: %s", res.message.c_str());
+      return true;
+    }
+
+    virt_obst_in_octree_frame.push_back(res_t.value().reference);
+    ROS_INFO("[OctomapPlanner]: Transformed obstacle point = [%.2f, %.2f, %.2f]", virt_obst_in_octree_frame.back().position.x, virt_obst_in_octree_frame.back().position.y,  virt_obst_in_octree_frame.back().position.z);
+
+  }
+
+  // Define the 12 edges by point pairs
+  const std::vector<std::pair<int, int>> edge_indices = {
+      {0, 1}, {0, 2}, {1, 3}, {2, 3},  // bottom face
+      {4, 5}, {5, 7}, {7, 6}, {6, 4},  // top face
+      {0, 4}, {1, 5}, {2, 6}, {3, 7}   // vertical edges
+  };
+
+  VirtualObstacle_t obst;
+  obst.frame_id = octree_frame;
+  obst.vertices.resize(8);
+  obst.uvw.resize(3);
+
+  auto& p0 = obst.vertices[0];
+  auto& p1 = obst.vertices[1];
+  auto& p2 = obst.vertices[2];
+  auto& p3 = obst.vertices[3];
+  auto& p4 = obst.vertices[4];
+  auto& p5 = obst.vertices[5];
+  auto& p6 = obst.vertices[6];
+  auto& p7 = obst.vertices[7];
+
+  auto& u = obst.uvw[0];
+  auto& v = obst.uvw[1];
+  auto& w = obst.uvw[2];
+
+  // | -------------------- Compute vertices -------------------- |
+  const auto& pts   = virt_obst_in_octree_frame;
+  const float min_z = float(std::fmin(pts.at(0).position.z, std::fmin(pts.at(1).position.z, pts.at(2).position.z)));
+  const float max_z = float(std::fmax(pts.at(0).position.z, std::fmax(pts.at(1).position.z, pts.at(2).position.z)));
+
+  p0 = Eigen::Vector3f(pts.at(0).position.x, pts.at(0).position.y, min_z);
+  p1 = Eigen::Vector3f(pts.at(1).position.x, pts.at(1).position.y, min_z);
+  p2 = Eigen::Vector3f(pts.at(2).position.x, pts.at(2).position.y, min_z);
+
+  obst.height = max_z - min_z;
+
+  u = p1 - p0;  // base edge 1
+  v = p2 - p0;  // base edge 2
+
+  Eigen::Vector3f normal = u.cross(v).normalized();  // height direction
+  normal[2]              = std::fabs(normal.z());    // always point up in the given frame
+  w                      = normal * obst.height;     // height vector
+
+  // Bottom face corner (last one)
+  p3 = p2 + u;
+
+  // Top face
+  p4 = p0 + w;
+  p5 = p1 + w;
+  p6 = p2 + w;
+  p7 = p3 + w;
+
+  // | -------------------- Setup vis marker -------------------- |
+  visualization_msgs::Marker edges;
+  auto&                      marker = obst.vis_marker;
+  marker.header.frame_id            = octree_frame;
+  marker.header.stamp               = ros::Time::now();
+  marker.ns                         = "edges";
+  marker.id                         = 0;
+  marker.type                       = visualization_msgs::Marker::LINE_LIST;
+  marker.action                     = visualization_msgs::Marker::ADD;
+  marker.scale.x                    = 0.04;  // line width
+
+  marker.color.r = 1.0;
+  marker.color.g = 0.0;
+  marker.color.b = 0.0;
+  marker.color.a = 1.0;
+
+  marker.points.reserve(edge_indices.size());
+  for (const auto& e : edge_indices) {
+    geometry_msgs::Point p_start;
+    geometry_msgs::Point p_end;
+
+    p_start.x = obst.vertices[e.first].x();
+    p_start.y = obst.vertices[e.first].y();
+    p_start.z = obst.vertices[e.first].z();
+    p_end.x   = obst.vertices[e.second].x();
+    p_end.y   = obst.vertices[e.second].y();
+    p_end.z   = obst.vertices[e.second].z();
+    marker.points.push_back(p_start);
+    marker.points.push_back(p_end);
+  }
+
+  {
+    std::scoped_lock lock(mutex_virtual_obstacles_);
+
+    virtual_obstacles_.push_back(obst);
+  }
+
+  ROS_INFO("[MrsOctomapPlanner] adding virtual obstacle");
+  ROS_INFO("                        p0: %.1f %.1f %.1f", p0.x(), p0.y(), p0.z());
+  ROS_INFO("                        p1: %.1f %.1f %.1f", p1.x(), p1.y(), p1.z());
+  ROS_INFO("                        p2: %.1f %.1f %.1f", p2.x(), p2.y(), p2.z());
+
+  res.success = {true};
+  res.message = "obstacle added";
+
+  return true;
+}
+
+//}
+
+/* callbackRemoveVirtualObstacles() //{ */
+
+bool OctomapPlanner::callbackRemoveVirtualObstacles(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
+
+  if (!is_initialized_) {
+    return false;
+  }
+
+  size_t virt_obst_size = virtual_obstacles_.size();
+  
+  std::stringstream ss;
+
+  if (virt_obst_size > 0) {
+
+    std::scoped_lock lock(mutex_virtual_obstacles_);
+    virtual_obstacles_.clear();
+    ss << virt_obst_size << " obstacles removed from the virtual obstacles.";
+
+  } else { 
+
+    ss << "Virtual obstacles array is empty. No obstacles to be removed.";
+
+  }
+
+
+  ROS_INFO_STREAM("[MrsOctomapPlanner]: " << ss.str());
+  res.success = true;
+  res.message = ss.str();
+  return true;
+}
+
+//}
 
 // | ------------------------- timers ------------------------- |
 
@@ -888,6 +1113,10 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
   ROS_INFO_ONCE("[MrsOctomapPlanner]: main timer spinning");
 
   const auto user_goal = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
+  if (new_user_goal_received_) {
+    first_planning_for_current_goal_ = true;
+    new_user_goal_received_          = false;
+  }
 
   const mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
   const mrs_msgs::TrackerCommandConstPtr            tracker_cmd          = sh_tracker_cmd_.getMsg();
@@ -955,7 +1184,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         diagnostics_.idle = false;
       }
 
-      if (replanning_counter_ >= 2) {
+      if (replanning_counter_ >= _max_attempts_to_replan_) {
 
         ROS_ERROR("[MrsOctomapPlanner]: planning failed, the uav is stuck");
 
@@ -1012,7 +1241,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       /*//}*/
 
       /* check if goal was reached */ /*//{*/
-      if ((plan_from - user_goal_octpoint).norm() < planning_tree_resolution_) {
+      if ((plan_from - user_goal_octpoint).norm() <= _min_path_length_ &&
+          mrs_lib::geometry::radians::dist(initial_condition.value().reference.heading, user_goal_.heading) < _min_path_heading_change_) {
 
         ROS_INFO_THROTTLE(1.0, "[MrsOctomapPlanner]: we reached the target");
         changeState(STATE_IDLE);
@@ -1027,56 +1257,89 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       auto safe_obstacle_distance = mrs_lib::get_mutexed(mutex_safety_distance_, _safe_obstacle_distance_);
       auto max_altitude           = mrs_lib::get_mutexed(mutex_max_altitude_, _max_altitude_);
 
-      if (_use_subt_planner_) {
 
-        // | -------------------- MRS SubT planner -------------------- |
-        mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
+      if ((plan_from - user_goal_octpoint).norm() <=
+          2 * sqrt(3) * planning_tree_resolution_) {  // enable planning on a short range and change of the heading without translation
 
-        subt_planner.initialize(true, time_for_planning - _subt_processing_timeout_, _subt_processing_timeout_, safe_obstacle_distance, _subt_clearing_dist_,
-                                _min_altitude_, max_altitude, _subt_debug_info_, bv_planner_, false);
-        subt_planner.setAstarAdmissibility(_subt_admissibility_);
-
-        ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
-
-        {
-          std::scoped_lock lock(mutex_planner_time_flag_);
-
-          planner_time_flag_ = ros::Time::now();
+        octomap::KeyRay key_ray;
+        bool            is_direct_path_collision_free = true;
+        if (octree->computeRayKeys(plan_from, user_goal_octpoint, key_ray)) {
+          for (octomap::KeyRay::iterator it1 = key_ray.begin(), end = key_ray.end(); it1 != end; ++it1) {
+            auto node = octree->search(*it1);
+            if (node && octree->isNodeOccupied(node)) {
+              is_direct_path_collision_free = false;
+              break;
+            }
+          }
+        } else {
+          ROS_ERROR_THROTTLE(0.1, "[MrsOctomapPlanner]: collision check of short direct path failed, could not raytrace!");
+          is_direct_path_collision_free = false;
+          break;
         }
 
-        waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree, _subt_make_path_straight_, _subt_apply_postprocessing_, _subt_bbx_horizontal_,
-                                          _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
-                                          _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_processing_path_length_,
-                                          _subt_shortening_window_size_, _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_, false, 2.0,
-                                          _subt_remove_obsolete_points_, _subt_obsolete_points_tolerance_);
+        if (is_direct_path_collision_free) {
+          ROS_INFO("[OctomapPlanner]: Using direct_collision_free_path.");
+          waypoints.second = true;
+          waypoints.first.push_back(plan_from);
 
-        {
-          std::scoped_lock lock(mutex_planner_time_flag_);
+        } else {
 
-          planner_time_flag_ = ros::Time(0);
+          ROS_WARN_THROTTLE(1.0, "[MrsOctomapPlanner]: direct short path does not exist.");
+          changeState(STATE_IDLE);
+          break;
         }
 
       } else {
 
-        ROS_INFO("[MrsOctomapPlanner]: Initializing astar planner.");
-        mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(
-            safe_obstacle_distance, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_, _greedy_penalty_,
-            _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, max_altitude, _unknown_is_occupied_, bv_planner_);
+        if (_use_subt_planner_) {
 
-        ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
+          // | -------------------- MRS SubT planner -------------------- |
+          mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
 
-        {
-          std::scoped_lock lock(mutex_planner_time_flag_);
+          subt_planner.initialize(true, time_for_planning - _subt_processing_timeout_, _subt_processing_timeout_, safe_obstacle_distance, _subt_clearing_dist_,
+                                  _min_altitude_, max_altitude, _subt_debug_info_, bv_planner_, false);
+          subt_planner.setAstarAdmissibility(_subt_admissibility_);
 
-          planner_time_flag_ = ros::Time::now();
-        }
+          ROS_INFO("[MrsOctomapPlanner]: Calling find path method.");
 
-        waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
+          {
+            std::scoped_lock lock(mutex_planner_time_flag_);
 
-        {
-          std::scoped_lock lock(mutex_planner_time_flag_);
+            planner_time_flag_ = ros::Time::now();
+          }
 
-          planner_time_flag_ = ros::Time(0);
+          waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree, _subt_make_path_straight_, _subt_apply_postprocessing_,
+                                            _subt_bbx_horizontal_, _subt_bbx_vertical_, _subt_processing_safe_dist_, _subt_processing_max_iterations_,
+                                            _subt_processing_horizontal_neighbors_only_, _subt_processing_z_diff_tolerance_, _subt_processing_path_length_,
+                                            _subt_shortening_window_size_, _subt_shortening_distance_, _subt_apply_pruning_, _subt_pruning_dist_, false, 2.0,
+                                            _subt_remove_obsolete_points_, _subt_obsolete_points_tolerance_);
+
+          {
+            std::scoped_lock lock(mutex_planner_time_flag_);
+
+            planner_time_flag_ = ros::Time(0);
+          }
+
+        } else {
+
+          mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(
+              safe_obstacle_distance, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_,
+              _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, max_altitude, _unknown_is_occupied_, bv_planner_);
+
+          {
+            std::scoped_lock lock(mutex_planner_time_flag_);
+
+            planner_time_flag_ = ros::Time::now();
+          }
+
+          waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
+
+          {
+            std::scoped_lock lock(mutex_planner_time_flag_);
+
+            planner_time_flag_ = ros::Time(0);
+          }
+
         }
       }
 
@@ -1089,9 +1352,11 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
         waypoints.first.push_back(user_goal_octpoint);
 
+        ROS_INFO("[MrsOctomapPlanner]: Path is complete. Path length = %lu", waypoints.first.size());
+
       } else {
 
-        ROS_INFO("[MrsOctomapPlanner]: path length: %d", (int)waypoints.first.size());
+        ROS_INFO("[MrsOctomapPlanner]: Path is not complete");
         if (waypoints.first.size() < 2) {
 
           ROS_WARN("[MrsOctomapPlanner]: path not found");
@@ -1100,6 +1365,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
           break;
         }
+
+        ROS_INFO("[MrsOctomapPlanner]: Path is not complete but found");
 
         double front_x = waypoints.first.front().x();
         double front_y = waypoints.first.front().y();
@@ -1121,20 +1388,52 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
           break;
         }
+
+        // Avoiding oscillation when the goal cannot be reached
+        octomap::point3d best_goal_current     = octomap::point3d(float(back_x), float(back_y), float(back_z));
+        double           path_end_to_goal_dist = (plan_from - user_goal_octpoint).norm();
+
+        if (!detected_collision_ && !first_planning_for_current_goal_ && path_end_to_goal_dist > _goal_reached_dist_ &&
+            path_end_to_goal_dist < _max_goal_dist_to_disable_replanning_) {  // goal unreachable
+
+          octomap::point3d best_goal_prev = octomap::point3d(diagnostics_.best_goal.x, diagnostics_.best_goal.y, diagnostics_.best_goal.z);
+
+          double dist_to_goal_prev    = (best_goal_prev - user_goal_octpoint).norm();
+          double dist_to_goal_current = (best_goal_current - user_goal_octpoint).norm();
+
+          if (dist_to_goal_prev - dist_to_goal_current < _min_dist_to_goal_improvement_) {
+
+            ROS_INFO_THROTTLE(1.0, "[MrsOctomapPlanner]: Insufficient improvement in dist to goal. Aborting the planning to avoid oscillations.");
+
+            replanning_counter_++;
+
+            changeState(STATE_PLANNING);
+
+            break;
+          }
+        }
       }
 
-      time_last_plan_ = ros::Time::now();
+      time_last_plan_                  = ros::Time::now();
+      first_planning_for_current_goal_ = false;
+      detected_collision_              = false;
 
-      diagnostics_.best_goal.x = waypoints.first.back().x();
-      diagnostics_.best_goal.y = waypoints.first.back().y();
-      diagnostics_.best_goal.z = waypoints.first.back().z();
+      {
+        std::scoped_lock lock(mutex_diagnostics_);
+
+        diagnostics_.best_goal.x = waypoints.first.back().x();
+        diagnostics_.best_goal.y = waypoints.first.back().y();
+        diagnostics_.best_goal.z = waypoints.first.back().z();
+      }
+
       /*//}*/
 
       {
         std::scoped_lock lock(mutex_initial_condition_);
 
-        mrs_msgs::TrackerCommandConstPtr tracker_cmd  = sh_tracker_cmd_.getMsg();
-        auto                             octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
+        mrs_msgs::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
+
+        auto octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
 
         // transform the position cmd to the map frame
         mrs_msgs::ReferenceStamped position_cmd_ref;
@@ -1212,7 +1511,12 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
               dx = waypoints.first[end_idx].x() - ref.position.x;
               dy = waypoints.first[end_idx].y() - ref.position.y;
               cum_dist += (waypoints.first[end_idx] - waypoints.first[end_idx - 1]).norm();
-              end_idx = fmin(++end_idx, waypoints.first.size() - 1);
+
+              if (end_idx < waypoints.first.size() - 1) {
+                end_idx++;
+              } else {
+                break;
+              }
             }
 
             if (fabs(dx) > 1e-3 || fabs(dy) > 1e-3) {
@@ -1248,8 +1552,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
                 waypoints.first[i - 1].z() + (waypoints.first[i].z() - waypoints.first[i - 1].z()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
             inter_ref.heading = ref.heading;
             srv_get_path.request.path.points.push_back(inter_ref);
-            ROS_INFO("[MrsOctomapPlanner]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y,
-                     inter_ref.position.z, inter_ref.heading);
+            /* ROS_INFO("[MrsOctomapPlanner]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y, */
+                     /* inter_ref.position.z, inter_ref.heading); */
           }
         }
 
@@ -1328,13 +1632,19 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       }
       if (!ray_is_cool) {
         replanning_counter_++;
+        detected_collision_ = true;
         changeState(STATE_PLANNING);
         break;
       }
 
-      ROS_INFO("[MrsOctomapPlanner]: Setting replanning point");
       setReplanningPoint(trajectory);
       set_timepoints_ = true;
+
+      // set user goal heading for final point such that it is achieved independently on length of the trajectory
+      if (_use_user_heading_for_final_point_ && !srv_get_path.response.trajectory.points.empty()) {
+        srv_get_path.response.trajectory.points.push_back(srv_get_path.response.trajectory.points.back());
+        srv_get_path.response.trajectory.points.back().heading = user_goal_.heading;
+      }
 
       ROS_INFO("[MrsOctomapPlanner]: publishing trajectory reference");
 
@@ -1346,12 +1656,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       path_id_++;
       srv_trajectory_reference.request.trajectory.input_id = path_id_;
 
-      /* int cb = 0; */
-      /* ROS_INFO("[MrsOctomapPlanner]: Mrs trajectory generation output:"); */
-      /* for (auto& point : srv_get_path.response.trajectory.points) { */
-      /*   ROS_INFO("[MrsOctomapPlanner]: Trajectory point %02d: [%.2f, %.2f, %.2f]", cb, point.position.x, point.position.y, point.position.z); */
-      /*   cb++; */
-      /* } */
+      int cb = 0;
 
       ROS_INFO("[MrsOctomapPlanner]: Calling trajectory service with timestamp = %.3f at time %.3f.",
                srv_trajectory_reference.request.trajectory.header.stamp.toSec(), ros::Time::now().toSec());
@@ -1410,14 +1715,11 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       position_cmd_octomap.y() = res.value().reference.position.y;
       position_cmd_octomap.z() = res.value().reference.position.z;
 
-      /* auto initial_pos = mrs_lib::get_mutexed(mutex_initial_condition_, initial_pos_); */
-
-      /* double dist_to_goal = (initial_pos - user_goal_octpoint).norm(); */
       double dist_to_goal = (position_cmd_octomap - user_goal_octpoint).norm();
 
       ROS_INFO_THROTTLE(1.0, "[MrsOctomapPlanner]: dist to goal: %.2f m", dist_to_goal);
 
-      if (dist_to_goal < 2 * planning_tree_resolution_) {
+      if (dist_to_goal < _goal_reached_dist_) {
         ROS_INFO("[MrsOctomapPlanner]: user goal reached");
         changeState(STATE_IDLE);
         break;
@@ -1450,10 +1752,12 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
   /* preconditions //{ */
 
   if (!sh_control_manager_diag_.hasMsg()) {
+    ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: missing control manager");
     return;
   }
 
   if (!sh_octomap_.hasMsg()) {
+    ROS_INFO_THROTTLE(1.0, "[OctomapPlanner]: Timer future: missing octomap");
     return;
   }
 
@@ -1667,6 +1971,43 @@ void OctomapPlanner::timerDiagnostics([[maybe_unused]] const ros::TimerEvent& ev
 
 //}
 
+/* timerPublishVirtualObstacles() //{ */
+
+void OctomapPlanner::timerPublishVirtualObstacles([[maybe_unused]] const ros::TimerEvent& evt) {
+
+  if (!is_initialized_) {
+    return;
+  }
+
+  if (pub_virtual_obstacles_.getNumSubscribers() == 0) {
+    return;
+  }
+
+  visualization_msgs::MarkerArray ma;
+  {
+    std::scoped_lock lock(mutex_virtual_obstacles_);
+
+    ma.markers.reserve(virtual_obstacles_.size());
+
+    for (int i = 0; i < virtual_obstacles_.size(); i++) {
+      auto& obst = virtual_obstacles_.at(i);
+
+      obst.vis_marker.header.stamp = evt.current_real;
+      obst.vis_marker.id           = i;
+      ma.markers.push_back(obst.vis_marker);
+    }
+  }
+
+  try {
+    pub_virtual_obstacles_.publish(ma);
+  }
+  catch (...) {
+    ROS_ERROR("exception caught during publishing topic '%s'", pub_virtual_obstacles_.getTopic().c_str());
+  }
+}
+
+//}
+
 // | ------------------------ routines ------------------------ |
 
 /* setReplanningPoint() //{ */
@@ -1833,6 +2174,7 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
   std::vector<double> segment_times;
   segment_times.reserve(vertices.size() - 1);
 
+  size_t check = vertices.size() - 1;
   // for each vertex in the path
   for (size_t i = 0; i < vertices.size() - 1; i++) {
 
@@ -2087,6 +2429,59 @@ octomap::OcTreeNode* OctomapPlanner::touchNodeRecurs(std::shared_ptr<OcTree_t>& 
   else {
 
     return node;
+  }
+}
+
+//}
+
+/* addVirtualObstaclesToOctree() //{ */
+
+void OctomapPlanner::addVirtualObstaclesToOctree(const std::shared_ptr<OcTree_t> octree) {
+
+  if (!octree) {
+    return;
+  }
+
+  const float step = 2.0f * float(planning_tree_resolution_);
+
+  for (const auto& obst : virtual_obstacles_) {
+
+    if (obst.frame_id != octree_frame_) {
+      ROS_WARN_THROTTLE(1.0, "[MrsOctomapPlanner] not adding virtual obstacle because it's frame_id (%s) doesn't match octree_frame (%s)", obst.frame_id.c_str(), octree_frame_.c_str());
+      continue;
+    }
+
+    // Helper lambda to mark a rectangular face defined by origin and two edge vectors
+    auto mark_face = [&](const Eigen::Vector3f& origin, const Eigen::Vector3f& edge1, const Eigen::Vector3f& edge2) {
+      const int steps1 = std::max(1, static_cast<int>(edge1.norm() / step));
+      const int steps2 = std::max(1, static_cast<int>(edge2.norm() / step));
+      for (int i = 0; i <= steps1; ++i) {
+        for (int j = 0; j <= steps2; ++j) {
+          const Eigen::Vector3f pt = origin + (float(i) / float(steps1)) * edge1 + (float(j) / float(steps2)) * edge2;
+          octree->updateNode(octomap::point3d(pt.x(), pt.y(), pt.z()), true);
+        }
+      }
+    };
+
+    const auto& p0 = obst.vertices[0];
+    const auto& p1 = obst.vertices[1];
+    const auto& p2 = obst.vertices[2];
+    const auto& p3 = obst.vertices[3];
+    const auto& p4 = obst.vertices[4];
+    const auto& u  = obst.uvw[0];
+    const auto& v  = obst.uvw[1];
+    const auto& w  = obst.uvw[2];
+
+    // Bottom face
+    mark_face(p0, u, v);
+    // Top face
+    mark_face(p4, u, v);
+
+    // 4 side faces
+    mark_face(p0, u, w);
+    mark_face(p0, v, w);
+    mark_face(p1, v, w);
+    mark_face(p2, u, w);
   }
 }
 
