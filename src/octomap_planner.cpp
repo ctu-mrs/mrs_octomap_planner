@@ -171,6 +171,7 @@ private:
   std::mutex mutex_planner_time_flag_;
   bool       _restart_planner_on_deadlock_;
   double     planner_deadlock_timeout_;
+  bool       avoiding_oscillations_ = false;
 
   // virtual obstacles params
   std::mutex                     mutex_virtual_obstacles_;
@@ -409,7 +410,7 @@ void OctomapPlanner::onInit() {
     _goal_reached_dist_ = 2 * planning_tree_resolution_;
   }
 
-  _euclidean_distance_cutoff_ = _safe_obstacle_distance_ + 0.01; // adaptation to prevent UAV being stuck
+  _euclidean_distance_cutoff_ = _safe_obstacle_distance_ + 0.01;  // adaptation to prevent UAV being stuck
 
   // set planner deadlock timeout
   if (_restart_planner_on_deadlock_) {
@@ -491,13 +492,13 @@ void OctomapPlanner::onInit() {
 
   // | --------------------- service servers -------------------- |
 
-  service_server_goto_                 = nh_.advertiseService("goto_in", &OctomapPlanner::callbackGoto, this);
-  service_server_stop_                 = nh_.advertiseService("stop_in", &OctomapPlanner::callbackStop, this);
-  service_server_reference_            = nh_.advertiseService("reference_in", &OctomapPlanner::callbackReference, this);
-  service_server_set_planner_          = nh_.advertiseService("planner_type_in", &OctomapPlanner::callbackSetPlanner, this);
-  service_server_set_safety_distance_  = nh_.advertiseService("set_safety_distance_in", &OctomapPlanner::callbackSetSafetyDistance, this);
-  service_server_set_max_altitude_     = nh_.advertiseService("set_max_altitude_in", &OctomapPlanner::callbackSetMaxAltitude, this);
-  service_server_add_virtual_obstacle_ = nh_.advertiseService("add_virtual_obstacle_in", &OctomapPlanner::callbackAddVirtualObstacle, this);
+  service_server_goto_                     = nh_.advertiseService("goto_in", &OctomapPlanner::callbackGoto, this);
+  service_server_stop_                     = nh_.advertiseService("stop_in", &OctomapPlanner::callbackStop, this);
+  service_server_reference_                = nh_.advertiseService("reference_in", &OctomapPlanner::callbackReference, this);
+  service_server_set_planner_              = nh_.advertiseService("planner_type_in", &OctomapPlanner::callbackSetPlanner, this);
+  service_server_set_safety_distance_      = nh_.advertiseService("set_safety_distance_in", &OctomapPlanner::callbackSetSafetyDistance, this);
+  service_server_set_max_altitude_         = nh_.advertiseService("set_max_altitude_in", &OctomapPlanner::callbackSetMaxAltitude, this);
+  service_server_add_virtual_obstacle_     = nh_.advertiseService("add_virtual_obstacle_in", &OctomapPlanner::callbackAddVirtualObstacle, this);
   service_server_remove_virtual_obstacles_ = nh_.advertiseService("remove_virtual_obstacles_in", &OctomapPlanner::callbackRemoveVirtualObstacles, this);
 
   // | --------------------- finish the init -------------------- |
@@ -796,7 +797,6 @@ bool OctomapPlanner::callbackReference(mrs_msgs::ReferenceStampedSrv::Request& r
       res.message = ss.str();
       return true;
     }
-
   }
 
   interrupted_ = false;
@@ -857,7 +857,7 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
       std::scoped_lock lock(mutex_safety_distance_);
 
       _safe_obstacle_distance_    = req.goal;
-      _euclidean_distance_cutoff_ = _safe_obstacle_distance_ + 0.01; // needed for correct function of MRS planner
+      _euclidean_distance_cutoff_ = _safe_obstacle_distance_ + 0.01;  // needed for correct function of MRS planner
     }
 
     ROS_INFO("[MrsOctomapPlanner]: setting safety distance to %.2f m.", _safe_obstacle_distance_);
@@ -922,16 +922,16 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
   }
 
   // Transform points to octree frame
-  std::string octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
-  std::vector<mrs_msgs::Reference> virt_obst_in_octree_frame; 
+  std::string                      octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
+  std::vector<mrs_msgs::Reference> virt_obst_in_octree_frame;
 
   for (auto& point_ref : req.array.array) {
-    
-    mrs_msgs::ReferenceStamped ref_stamped;
-    ref_stamped.header               = req.array.header;
-    ref_stamped.reference            = point_ref;
 
-    ROS_INFO("[OctomapPlanner]: Input obstacle point = [%.2f, %.2f, %.2f]", point_ref.position.x, point_ref.position.y,  point_ref.position.z);
+    mrs_msgs::ReferenceStamped ref_stamped;
+    ref_stamped.header    = req.array.header;
+    ref_stamped.reference = point_ref;
+
+    ROS_INFO("[OctomapPlanner]: Input obstacle point = [%.2f, %.2f, %.2f]", point_ref.position.x, point_ref.position.y, point_ref.position.z);
 
     auto res_t = transformer_->transformSingle(ref_stamped, octree_frame);
 
@@ -943,8 +943,8 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
     }
 
     virt_obst_in_octree_frame.push_back(res_t.value().reference);
-    ROS_INFO("[OctomapPlanner]: Transformed obstacle point = [%.2f, %.2f, %.2f]", virt_obst_in_octree_frame.back().position.x, virt_obst_in_octree_frame.back().position.y,  virt_obst_in_octree_frame.back().position.z);
-
+    ROS_INFO("[OctomapPlanner]: Transformed obstacle point = [%.2f, %.2f, %.2f]", virt_obst_in_octree_frame.back().position.x,
+             virt_obst_in_octree_frame.back().position.y, virt_obst_in_octree_frame.back().position.z);
   }
 
   // Define the 12 edges by point pairs
@@ -1058,7 +1058,7 @@ bool OctomapPlanner::callbackRemoveVirtualObstacles(std_srvs::Trigger::Request& 
   }
 
   size_t virt_obst_size = virtual_obstacles_.size();
-  
+
   std::stringstream ss;
 
   if (virt_obst_size > 0) {
@@ -1067,10 +1067,9 @@ bool OctomapPlanner::callbackRemoveVirtualObstacles(std_srvs::Trigger::Request& 
     virtual_obstacles_.clear();
     ss << virt_obst_size << " obstacles removed from the virtual obstacles.";
 
-  } else { 
+  } else {
 
     ss << "Virtual obstacles array is empty. No obstacles to be removed.";
-
   }
 
 
@@ -1339,7 +1338,6 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
             planner_time_flag_ = ros::Time(0);
           }
-
         }
       }
 
@@ -1407,6 +1405,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
             replanning_counter_++;
 
+            avoiding_oscillations_ = true;
+
             changeState(STATE_PLANNING);
 
             break;
@@ -1417,6 +1417,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       time_last_plan_                  = ros::Time::now();
       first_planning_for_current_goal_ = false;
       detected_collision_              = false;
+      avoiding_oscillations_           = false;
 
       {
         std::scoped_lock lock(mutex_diagnostics_);
@@ -1553,7 +1554,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
             inter_ref.heading = ref.heading;
             srv_get_path.request.path.points.push_back(inter_ref);
             /* ROS_INFO("[MrsOctomapPlanner]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y, */
-                     /* inter_ref.position.z, inter_ref.heading); */
+            /* inter_ref.position.z, inter_ref.heading); */
           }
         }
 
@@ -1763,7 +1764,7 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
 
   //}
 
-  if (state_ == STATE_IDLE) {
+  if (state_ == STATE_IDLE && !avoiding_oscillations_) {
     return;
   }
 
@@ -2145,6 +2146,8 @@ void OctomapPlanner::hover(void) {
 
   interrupted_ = true;
 
+  avoiding_oscillations_ = false;
+
   std_srvs::Trigger srv_out;
 
   sc_hover_.call(srv_out);
@@ -2447,7 +2450,8 @@ void OctomapPlanner::addVirtualObstaclesToOctree(const std::shared_ptr<OcTree_t>
   for (const auto& obst : virtual_obstacles_) {
 
     if (obst.frame_id != octree_frame_) {
-      ROS_WARN_THROTTLE(1.0, "[MrsOctomapPlanner] not adding virtual obstacle because it's frame_id (%s) doesn't match octree_frame (%s)", obst.frame_id.c_str(), octree_frame_.c_str());
+      ROS_WARN_THROTTLE(1.0, "[MrsOctomapPlanner] not adding virtual obstacle because it's frame_id (%s) doesn't match octree_frame (%s)",
+                        obst.frame_id.c_str(), octree_frame_.c_str());
       continue;
     }
 
