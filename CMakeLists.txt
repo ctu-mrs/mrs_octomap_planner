@@ -1,127 +1,144 @@
-cmake_minimum_required(VERSION 3.16)
-project(mrs_octomap_planner)
 
-add_definitions(-DOCTOMAP_NODEBUGOUT)
-add_definitions(-O3)
+## --------------------------------------------------------------
+## |                        Octomap Planner                      |
+## --------------------------------------------------------------
 
-set(CMAKE_CXX_STANDARD 17)
+cmake_minimum_required(VERSION 3.5)
+project(mrs_octomap_server)
+
+# set the correct standards
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# disables anoying googletest warning
-set(CATKIN_ENABLE_TESTING FALSE)
+# Compiler options
+add_compile_options(-O3 -DOCTOMAP_NODEBUGOUT)
 
-# disables anoying PCL warnings
-set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE INTERNAL "No dev warnings")
 
-set(CATKIN_DEPENDENCIES
-  cmake_modules
+# 1 == use rclcpp::Timer implementation
+# 0 == use MRS's thread timer implementation
+set(USE_ROS_TIMER 0)
+#set(USE_ROS_TIMER 1)
+
+
+if(${USE_ROS_TIMER})
+  MESSAGE(WARNING "[mrs_octomap_planner]: Compiling with ROS Timers. This can cause high CPU load in runtime.")
+endif()
+
+# set the compile options to show code warnings
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra)
+endif()
+
+if(ENABLE_COVERAGE)
+  message(WARNING "building for coverage, the performance might be limited")
+
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage -fprofile-arcs")
+
+  add_definitions("-O1")
+  add_definitions("-g")
+endif()
+
+# Find dependencies
+set(DEPENDENCIES
+  rclcpp_components
+  mrs_modules_msgs
   mrs_lib
   mrs_msgs
-  mrs_modules_msgs
-  mrs_octomap_tools
-  mrs_subt_planning_lib
-  nav_msgs
-  nodelet
+  std_msgs
+  std_srvs
   octomap_msgs
   octomap_ros
-  roscpp
-  rospy
-  std_msgs
+  mrs_octomap_tools
   geometry_msgs
-  message_generation
-  )
+  nav_msgs
+  mrs_subt_planning_lib
+  dynamic_edt_3d
+)
 
 set(LIBRARIES
   MrsOctomapPlanner_OctomapPlanner
   MrsOctomapPlanner_MinimalOctomapPlanner
   )
 
-find_package(catkin REQUIRED
-  ${CATKIN_DEPENDENCIES}
-  )
 
-find_package(octomap REQUIRED)
-add_definitions(-DOCTOMAP_NODEBUGOUT)
+foreach(DEP IN LISTS DEPENDENCIES)
+  find_package(${DEP} REQUIRED)
+endforeach()
 
-find_package(dynamicEDT3D REQUIRED)
 
-# include Eigen3
-find_package(Eigen3 REQUIRED)
-set(Eigen_INCLUDE_DIRS ${EIGEN3_INCLUDE_DIRS})
-set(Eigen_LIBRARIES ${Eigen_LIBRARIES})
-
-add_service_files(FILES
-  Path.srv
-)
-
-## Generate added messages and services with any dependencies listed here
-generate_messages(DEPENDENCIES
-  std_msgs
-  geometry_msgs
-)
-
-catkin_package(
-  INCLUDE_DIRS include
-  CATKIN_DEPENDS ${CATKIN_DEPENDENCIES}
-  LIBRARIES ${LIBRARIES}
-  DEPENDS OCTOMAP message_runtime
-  )
-
-include_directories(SYSTEM
+include_directories(
   include
-  ${catkin_INCLUDE_DIRS}
-  ${OCTOMAP_INCLUDE_DIRS}
-  ${dynamicEDT3D_INCLUDE_DIRS}
+  ${rclcpp_INCLUDE_DIRS}
+  ${mrs_lib_INCLUDE_DIRS}
+  ${mrs_modules_msgs_INCLUDE_DIRS}
+  ${mrs_msgs_INCLUDE_DIRS}
   )
 
-# Octomap Planner
 
-add_library(MrsOctomapPlanner_OctomapPlanner
+
+
+## --------------------------------------------------------------
+## |                           Compile                          |
+## --------------------------------------------------------------
+
+add_library(MrsOctomapPlanner SHARED
   src/octomap_planner.cpp
-  src/astar_planner.cpp
-  )
-
-add_dependencies(MrsOctomapPlanner_OctomapPlanner
-  ${${PROJECT_NAME}_EXPORTED_TARGETS}
-  ${catkin_EXPORTED_TARGETS}
-  )
-
-target_link_libraries(MrsOctomapPlanner_OctomapPlanner
-  ${catkin_LIBRARIES}
-  ${OCTOMAP_LIBRARIES}
-  ${DYNAMICEDT3D_LIBRARIES}
-  )
-
-add_library(MrsOctomapPlanner_MinimalOctomapPlanner
   src/minimal_octomap_planner.cpp
   src/astar_planner.cpp
-  )
+)
 
-add_dependencies(MrsOctomapPlanner_MinimalOctomapPlanner
-  ${${PROJECT_NAME}_EXPORTED_TARGETS}
-  ${catkin_EXPORTED_TARGETS}
-  )
+ament_target_dependencies(MrsOctomapPlanner
+  ${DEPENDENCIES}
+)
 
-target_link_libraries(MrsOctomapPlanner_MinimalOctomapPlanner
-  ${catkin_LIBRARIES}
-  ${OCTOMAP_LIBRARIES}
-  ${DYNAMICEDT3D_LIBRARIES}
-  )
+
+## components
+rclcpp_components_register_nodes(MrsOctomapPlanner PLUGIN "mrs_octomap_planner::OctomapPlanner" EXECUTABLE MrsOctomapPlanner)
+
+target_compile_definitions(MrsOctomapPlanner PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
 
 ## --------------------------------------------------------------
-## |                           Install                          |
+## |                           install                          |
 ## --------------------------------------------------------------
 
-install(TARGETS ${LIBRARIES}
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+
+ament_export_libraries(
+  ${LIBRARIES}
   )
 
-install(DIRECTORY launch config
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+install(
+  TARGETS ${LIBRARIES}
+  EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
   )
 
-install(FILES nodelets.xml
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+
+install(DIRECTORY include/
+  DESTINATION .)
+
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
   )
+
+
+install(
+  DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}
+)
+
+ament_export_include_directories(include)
+
+ament_export_targets(
+  export_${PROJECT_NAME} HAS_LIBRARY_TARGET
+)
+
+ament_export_dependencies(
+  ${DEPENDENCIES}
+)
+
+ament_package()

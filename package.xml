@@ -10,28 +10,32 @@
 
   <license>BSD 3-Clause</license>
 
-  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_ros</buildtool_depend>
 
-  <depend>cmake_modules</depend>
+  <depend>rclcpp_components</depend>
+  <depend>mrs_modules_msgs</depend>
   <depend>mrs_lib</depend>
   <depend>mrs_msgs</depend>
-  <depend>mrs_modules_msgs</depend>
-  <depend>mrs_subt_planning_lib</depend>
-  <depend>nav_msgs</depend>
-  <depend>nodelet</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>octomap_msgs</depend>
   <depend>octomap_ros</depend>
-  <depend>roscpp</depend>
-  <depend>rospy</depend>
-  <depend>std_msgs</depend>
-  <depend>dynamic_edt_3d</depend>
   <depend>mrs_octomap_tools</depend>
   <depend>geometry_msgs</depend>
-  <depend>message_generation</depend>
-  <depend>message_runtime</depend>
+  <depend>nav_msgs</depend>
+  <depend>mrs_subt_planning_lib</depend>
+  <depend>dynamic_edt_3d</depend>
+
+
+  <exec_depend>liboctomap</exec_depend>
+  <exec_depend>libeigen3-dev</exec_depend>
+  
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
   <export>
-    <nodelet plugin="${prefix}/nodelets.xml" />
+    <build_type>ament_cmake</build_type>
   </export>
 
 </package>
