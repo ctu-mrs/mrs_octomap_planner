@@ -1,16 +1,13 @@
 /* includes //{ */
 
 #include <memory>
-#include <ros/init.h>
-#include <ros/ros.h>
-#include <ros/package.h>
-#include <nodelet/nodelet.h>
+#include <rclcpp/rclcpp.h>
 
 #include <octomap/OcTree.h>
 #include <mrs_octomap_tools/octomap_methods.h>
 
-#include <octomap_msgs/Octomap.h>
-#include <octomap_msgs/conversions.h>
+#include <octomap_msgs/msg/Octomap.h>
+#include <octomap_msgs/msg/conversions.h>
 
 #include <algorithm>
 #include <chrono>
@@ -29,28 +26,30 @@
 #include <mrs_lib/geometry/misc.h>
 #include <mrs_lib/geometry/cyclic.h>
 
-#include <mrs_msgs/TrackerCommand.h>
-#include <mrs_msgs/Vec4.h>
-#include <mrs_msgs/Vec1.h>
-#include <mrs_msgs/ReferenceStampedSrv.h>
-#include <mrs_msgs/ValidateReferenceArray.h>
-#include <mrs_msgs/GetPathSrv.h>
-#include <mrs_msgs/String.h>
-#include <mrs_msgs/MpcPredictionFullState.h>
-#include <mrs_msgs/TrajectoryReferenceSrv.h>
-#include <mrs_msgs/ControlManagerDiagnostics.h>
-#include <mrs_msgs/DynamicsConstraints.h>
-#include <mrs_msgs/TrajectoryReference.h>
+#include <mrs_msgs/srv/Vec4.h>
+#include <mrs_msgs/srv/Vec1.h>
+#include <mrs_msgs/srv/ReferenceStampedSrv.h>
+#include <mrs_msgs/srv/ValidateReferenceArray.h>
+#include <mrs_msgs/srv/GetPathSrv.h>
+#include <mrs_msgs/srv/String.h>
+#include <mrs_msgs/srv/TrajectoryReferenceSrv.h>
 
-#include <mrs_modules_msgs/OctomapPlannerDiagnostics.h>
 
-#include <std_srvs/Trigger.h>
+#include <mrs_msgs/msg/TrackerCommand.h>
+#include <mrs_msgs/msg/MpcPredictionFullState.h>
+#include <mrs_msgs/msg/ControlManagerDiagnostics.h>
+#include <mrs_msgs/msg/DynamicsConstraints.h>
+#include <mrs_msgs/msg/TrajectoryReference.h>
+
+#include <mrs_modules_msgs/msg/OctomapPlannerDiagnostics.h>
+
+#include <std_srvs/srv/Trigger.h>
 
 #include <astar_planner.hpp>
 #include <mrs_subt_planning_lib/astar_planner.h>
 
-#include <visualization_msgs/Marker.h>
-#include <visualization_msgs/MarkerArray.h>
+#include <visualization_msgs/msg/Marker.h>
+#include <visualization_msgs/msg/MarkerArray.h>
 
 //}
 
@@ -72,22 +71,23 @@ struct VirtualObstacle_t
   float                        height;
   std::vector<Eigen::Vector3f> vertices;
   std::vector<Eigen::Vector3f> uvw;
-  visualization_msgs::Marker   vis_marker;
+  visualization_msgs::msg::Marker   vis_marker;
 };
 
 const std::string _state_names_[] = {"IDLE", "PLANNING", "MOVING"};
 
 using OcTree_t            = octomap::OcTree;
 using OcTreePtr_t         = std::shared_ptr<octomap::OcTree>;
-using OcTreeMsgConstPtr_t = octomap_msgs::OctomapConstPtr;
+using OcTreeMsgConstPtr_t = octomap_msgs::msg::OctomapConstPtr;
 
 //}
 
 /* class OctomapPlanner //{ */
 
-class OctomapPlanner : public nodelet::Nodelet {
+class OctomapPlanner : public rclcpp::Node {
 
 public:
+  explicit OctomapPlanner(const rclcpp::NodeOptions& options);
   virtual void onInit();
 
 private:
@@ -198,18 +198,18 @@ private:
   std::mutex               mutex_bv_processed_;
 
   // subscribers
-  mrs_lib::SubscribeHandler<mrs_msgs::TrackerCommand>            sh_tracker_cmd_;
-  mrs_lib::SubscribeHandler<octomap_msgs::Octomap>               sh_octomap_;
-  mrs_lib::SubscribeHandler<mrs_msgs::ControlManagerDiagnostics> sh_control_manager_diag_;
-  mrs_lib::SubscribeHandler<mrs_msgs::DynamicsConstraints>       sh_constraints_;
+  mrs_lib::SubscribeHandler<mrs_msgs::msg::TrackerCommand>            sh_tracker_cmd_;
+  mrs_lib::SubscribeHandler<octomap_msgs::msg::Octomap>               sh_octomap_;
+  mrs_lib::SubscribeHandler<mrs_msgs::msg::ControlManagerDiagnostics> sh_control_manager_diag_;
+  mrs_lib::SubscribeHandler<mrs_msgs::msg::DynamicsConstraints>       sh_constraints_;
 
   // publishers
   ros::Publisher pub_diagnostics_;
   ros::Publisher pub_virtual_obstacles_;
 
   // subscriber callbacks
-  void callbackTrackerCmd(const mrs_msgs::TrackerCommand::ConstPtr msg);
-  void callbackOctomap(const octomap_msgs::Octomap::ConstPtr msg);
+  void callbackTrackerCmd(const mrs_msgs::msg::TrackerCommand::ConstPtr msg);
+  void callbackOctomap(const octomap_msgs::msg::Octomap::ConstPtr msg);
 
   // service servers
   ros::ServiceServer service_server_goto_;
@@ -222,19 +222,19 @@ private:
   ros::ServiceServer service_server_remove_virtual_obstacles_;
 
   // service server callbacks
-  bool callbackGoto(mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res);
-  bool callbackStop(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
-  bool callbackReference(mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res);
-  bool callbackSetPlanner(mrs_msgs::String::Request& req, mrs_msgs::String::Response& res);
-  bool callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs_msgs::Vec1::Response& res);
-  bool callbackSetMaxAltitude(mrs_msgs::Vec1::Request& req, mrs_msgs::Vec1::Response& res);
-  bool callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray::Request& req, mrs_msgs::ValidateReferenceArray::Response& res);
-  bool callbackRemoveVirtualObstacles(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+  bool callbackGoto(mrs_msgs::srv::Vec4::Request& req, mrs_msgs::srv::Vec4::Response& res);
+  bool callbackStop(std_srvs::srv::Trigger::Request& req, std_srvs::srv::Trigger::Response& res);
+  bool callbackReference(mrs_msgs::srv::ReferenceStampedSrv::Request& req, mrs_msgs::srv::ReferenceStampedSrv::Response& res);
+  bool callbackSetPlanner(mrs_msgs::srv::String::Request& req, mrs_msgs::srv::String::Response& res);
+  bool callbackSetSafetyDistance(mrs_msgs::srv::Vec1::Request& req, mrs_msgs::srv::Vec1::Response& res);
+  bool callbackSetMaxAltitude(mrs_msgs::srv::Vec1::Request& req, mrs_msgs::srv::Vec1::Response& res);
+  bool callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReferenceArray::Request& req, mrs_msgs::srv::ValidateReferenceArray::Response& res);
+  bool callbackRemoveVirtualObstacles(std_srvs::srv::Trigger::Request& req, std_srvs::srv::Trigger::Response& res);
 
   // service clients
-  mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>             sc_get_trajectory_;
-  mrs_lib::ServiceClientHandler<mrs_msgs::TrajectoryReferenceSrv> sc_trajectory_reference_;
-  mrs_lib::ServiceClientHandler<std_srvs::Trigger>                sc_hover_;
+  mrs_lib::ServiceClientHandler<mrs_msgs::srv::GetPathSrv>             sc_get_trajectory_;
+  mrs_lib::ServiceClientHandler<mrs_msgs::srv::TrajectoryReferenceSrv> sc_trajectory_reference_;
+  mrs_lib::ServiceClientHandler<std_srvs::srv::Trigger>                sc_hover_;
 
   // timers
   ros::Timer timer_main_;
@@ -250,7 +250,7 @@ private:
   void       timerPublishVirtualObstacles([[maybe_unused]] const ros::TimerEvent& evt);
 
   // diagnostics
-  mrs_modules_msgs::OctomapPlannerDiagnostics diagnostics_;
+  mrs_modules_msgs::msg::OctomapPlannerDiagnostics diagnostics_;
   std::mutex                                  mutex_diagnostics_;
 
   // timeouts
@@ -277,7 +277,7 @@ private:
   void                 changeState(const State_t new_state);
   std::atomic<bool>    interrupted_ = false;
 
-  mrs_msgs::Reference user_goal_;
+  mrs_msgs::msg::Reference user_goal_;
   std::mutex          mutex_user_goal_;
 
   octomap::point3d internal_goal_;
@@ -292,11 +292,11 @@ private:
   std::mutex       mutex_replanning_point_;
 
   // routines
-  void setReplanningPoint(const mrs_msgs::TrajectoryReference& traj);
+  void setReplanningPoint(const mrs_msgs::msg::TrajectoryReference& traj);
 
   std::vector<double> estimateSegmentTimes(const std::vector<Eigen::Vector4d>& vertices, const bool use_heading);
 
-  std::optional<OcTreePtr_t> msgToMap(const octomap_msgs::OctomapConstPtr octomap);
+  std::optional<OcTreePtr_t> msgToMap(const octomap_msgs::msg::OctomapConstPtr octomap);
 
   /**
    * @brief returns planning initial condition for a given future time based on the MPC prediction horizon
@@ -305,7 +305,7 @@ private:
    *
    * @return x, y, z, heading reference
    */
-  std::optional<mrs_msgs::ReferenceStamped> getInitialCondition(const ros::Time time);
+  std::optional<mrs_msgs::msg::ReferenceStamped> getInitialCondition(const ros::Time time);
 
   bool copyLocalMap(std::shared_ptr<OcTree_t>& from, std::shared_ptr<OcTree_t>& to);
 
@@ -434,8 +434,8 @@ void OctomapPlanner::onInit() {
 
   // | ----------------------- publishers ----------------------- |
 
-  pub_diagnostics_       = nh_.advertise<mrs_modules_msgs::OctomapPlannerDiagnostics>("diagnostics_out", 1);
-  pub_virtual_obstacles_ = nh_.advertise<visualization_msgs::MarkerArray>("virtual_obstacles_out", 1);
+  pub_diagnostics_       = nh_.advertise<mrs_modules_msgs::msg::OctomapPlannerDiagnostics>("diagnostics_out", 1);
+  pub_virtual_obstacles_ = nh_.advertise<visualization_msgs::msg::MarkerArray>("virtual_obstacles_out", 1);
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -448,20 +448,20 @@ void OctomapPlanner::onInit() {
   shopts.queue_size         = 1;
   shopts.transport_hints    = ros::TransportHints().tcpNoDelay();
 
-  sh_tracker_cmd_ = mrs_lib::SubscribeHandler<mrs_msgs::TrackerCommand>(shopts, "tracker_cmd_in", ros::Duration(3.0), &OctomapPlanner::timeoutTrackerCmd, this);
-  sh_octomap_     = mrs_lib::SubscribeHandler<octomap_msgs::Octomap>(shopts, "octomap_in", ros::Duration(5.0), &OctomapPlanner::timeoutOctomap, this,
+  sh_tracker_cmd_ = mrs_lib::SubscribeHandler<mrs_msgs::msg::TrackerCommand>(shopts, "tracker_cmd_in", ros::Duration(3.0), &OctomapPlanner::timeoutTrackerCmd, this);
+  sh_octomap_     = mrs_lib::SubscribeHandler<octomap_msgs::msg::Octomap>(shopts, "octomap_in", ros::Duration(5.0), &OctomapPlanner::timeoutOctomap, this,
                                                                  &OctomapPlanner::callbackOctomap, this);
 
-  sh_control_manager_diag_ = mrs_lib::SubscribeHandler<mrs_msgs::ControlManagerDiagnostics>(shopts, "control_manager_diag_in", ros::Duration(3.0),
+  sh_control_manager_diag_ = mrs_lib::SubscribeHandler<mrs_msgs::msg::ControlManagerDiagnostics>(shopts, "control_manager_diag_in", ros::Duration(3.0),
                                                                                             &OctomapPlanner::timeoutControlManagerDiag, this);
 
-  sh_constraints_ = mrs_lib::SubscribeHandler<mrs_msgs::DynamicsConstraints>(shopts, "constraints_in");
+  sh_constraints_ = mrs_lib::SubscribeHandler<mrs_msgs::msg::DynamicsConstraints>(shopts, "constraints_in");
 
   // | --------------------- service clients -------------------- |
 
-  sc_get_trajectory_       = mrs_lib::ServiceClientHandler<mrs_msgs::GetPathSrv>(nh_, "trajectory_generation_out");
-  sc_trajectory_reference_ = mrs_lib::ServiceClientHandler<mrs_msgs::TrajectoryReferenceSrv>(nh_, "trajectory_reference_out");
-  sc_hover_                = mrs_lib::ServiceClientHandler<std_srvs::Trigger>(nh_, "hover_out");
+  sc_get_trajectory_       = mrs_lib::ServiceClientHandler<mrs_msgs::srv::GetPathSrv>(nh_, "trajectory_generation_out");
+  sc_trajectory_reference_ = mrs_lib::ServiceClientHandler<mrs_msgs::srv::TrajectoryReferenceSrv>(nh_, "trajectory_reference_out");
+  sc_hover_                = mrs_lib::ServiceClientHandler<std_srvs::srv::Trigger>(nh_, "hover_out");
 
   // | ----------------------- transformer ---------------------- |
 
@@ -540,7 +540,7 @@ void OctomapPlanner::timeoutTrackerCmd(const std::string& topic, const ros::Time
 
 /* callbackOctomap() //{ */
 
-void OctomapPlanner::callbackOctomap(const octomap_msgs::Octomap::ConstPtr msg) {
+void OctomapPlanner::callbackOctomap(const octomap_msgs::msg::Octomap::ConstPtr msg) {
 
   if (!is_initialized_) {
     return;
@@ -643,7 +643,7 @@ void OctomapPlanner::timeoutControlManagerDiag(const std::string& topic, const r
 
 /* callbackStop() //{ */
 
-bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
+bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::srv::Trigger::Request& req, std_srvs::srv::Trigger::Response& res) {
 
   if (!is_initialized_) {
     return false;
@@ -675,7 +675,7 @@ bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::Trigger::Request& r
 
 /* callbackGoto() //{ */
 
-bool OctomapPlanner::callbackGoto(mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::Response& res) {
+bool OctomapPlanner::callbackGoto(mrs_msgs::srv::Vec4::Request& req, mrs_msgs::srv::Vec4::Response& res) {
 
   /* prerequisities //{ */
 
@@ -699,9 +699,9 @@ bool OctomapPlanner::callbackGoto(mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::
   // | -------- transform the reference to the map frame -------- |
 
   {
-    mrs_msgs::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
+    mrs_msgs::msg::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
 
-    mrs_msgs::ReferenceStamped reference;
+    mrs_msgs::msg::ReferenceStamped reference;
     reference.header.frame_id = tracker_cmd->header.frame_id;
 
     reference.reference.position.x = req.goal[0];
@@ -750,7 +750,7 @@ bool OctomapPlanner::callbackGoto(mrs_msgs::Vec4::Request& req, mrs_msgs::Vec4::
 
 /* callbackReference() //{ */
 
-bool OctomapPlanner::callbackReference(mrs_msgs::ReferenceStampedSrv::Request& req, mrs_msgs::ReferenceStampedSrv::Response& res) {
+bool OctomapPlanner::callbackReference(mrs_msgs::srv::ReferenceStampedSrv::Request& req, mrs_msgs::srv::ReferenceStampedSrv::Response& res) {
 
   /* prerequisities //{ */
 
@@ -774,7 +774,7 @@ bool OctomapPlanner::callbackReference(mrs_msgs::ReferenceStampedSrv::Request& r
   // | -------- transform the reference to the map frame -------- |
   {
 
-    mrs_msgs::ReferenceStamped ref_stamped;
+    mrs_msgs::msg::ReferenceStamped ref_stamped;
     ref_stamped.header    = req.header;
     ref_stamped.reference = req.reference;
 
@@ -819,7 +819,7 @@ bool OctomapPlanner::callbackReference(mrs_msgs::ReferenceStampedSrv::Request& r
 
 /* callbackSetPlanner() //{ */
 
-bool OctomapPlanner::callbackSetPlanner(mrs_msgs::String::Request& req, mrs_msgs::String::Response& res) {
+bool OctomapPlanner::callbackSetPlanner(mrs_msgs::srv::String::Request& req, mrs_msgs::srv::String::Response& res) {
 
   if (!is_initialized_) {
     return false;
@@ -845,7 +845,7 @@ bool OctomapPlanner::callbackSetPlanner(mrs_msgs::String::Request& req, mrs_msgs
 
 /* callbackSetSafetyDistance() //{ */
 
-bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs_msgs::Vec1::Response& res) {
+bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::srv::Vec1::Request& req, mrs_msgs::srv::Vec1::Response& res) {
 
   if (!is_initialized_) {
     return false;
@@ -881,7 +881,7 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::Vec1::Request& req, mrs
 
 /* callbackSetMaxAltitude() //{ */
 
-bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::Vec1::Request& req, mrs_msgs::Vec1::Response& res) {
+bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::srv::Vec1::Request& req, mrs_msgs::srv::Vec1::Response& res) {
 
   if (!is_initialized_) {
     return false;
@@ -907,7 +907,7 @@ bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::Vec1::Request& req, mrs_ms
 //
 /* callbackAddVirtualObstacle() //{ */
 
-bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray::Request& req, mrs_msgs::ValidateReferenceArray::Response& res) {
+bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReferenceArray::Request& req, mrs_msgs::srv::ValidateReferenceArray::Response& res) {
 
   if (!is_initialized_) {
     res.success = {false};
@@ -923,11 +923,11 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
 
   // Transform points to octree frame
   std::string                      octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
-  std::vector<mrs_msgs::Reference> virt_obst_in_octree_frame;
+  std::vector<mrs_msgs::msg::Reference> virt_obst_in_octree_frame;
 
   for (auto& point_ref : req.array.array) {
 
-    mrs_msgs::ReferenceStamped ref_stamped;
+    mrs_msgs::msg::ReferenceStamped ref_stamped;
     ref_stamped.header    = req.array.header;
     ref_stamped.reference = point_ref;
 
@@ -1000,14 +1000,14 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
   p7 = p3 + w;
 
   // | -------------------- Setup vis marker -------------------- |
-  visualization_msgs::Marker edges;
+  visualization_msgs::msg::Marker edges;
   auto&                      marker = obst.vis_marker;
   marker.header.frame_id            = octree_frame;
   marker.header.stamp               = ros::Time::now();
   marker.ns                         = "edges";
   marker.id                         = 0;
-  marker.type                       = visualization_msgs::Marker::LINE_LIST;
-  marker.action                     = visualization_msgs::Marker::ADD;
+  marker.type                       = visualization_msgs::msg::Marker::LINE_LIST;
+  marker.action                     = visualization_msgs::msg::Marker::ADD;
   marker.scale.x                    = 0.04;  // line width
 
   marker.color.r = 1.0;
@@ -1051,7 +1051,7 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::ValidateReferenceArray
 
 /* callbackRemoveVirtualObstacles() //{ */
 
-bool OctomapPlanner::callbackRemoveVirtualObstacles(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
+bool OctomapPlanner::callbackRemoveVirtualObstacles(std_srvs::srv::Trigger::Request& req, std_srvs::srv::Trigger::Response& res) {
 
   if (!is_initialized_) {
     return false;
@@ -1117,8 +1117,8 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
     new_user_goal_received_          = false;
   }
 
-  const mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
-  const mrs_msgs::TrackerCommandConstPtr            tracker_cmd          = sh_tracker_cmd_.getMsg();
+  const mrs_msgs::msg::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
+  const mrs_msgs::msg::TrackerCommandConstPtr            tracker_cmd          = sh_tracker_cmd_.getMsg();
 
   std::shared_ptr<OcTree_t> octree;
 
@@ -1432,12 +1432,12 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       {
         std::scoped_lock lock(mutex_initial_condition_);
 
-        mrs_msgs::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
+        mrs_msgs::msg::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
 
         auto octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
 
         // transform the position cmd to the map frame
-        mrs_msgs::ReferenceStamped position_cmd_ref;
+        mrs_msgs::msg::ReferenceStamped position_cmd_ref;
         position_cmd_ref.header               = tracker_cmd->header;
         position_cmd_ref.reference.position.x = tracker_cmd->position.x;
         position_cmd_ref.reference.position.y = tracker_cmd->position.y;
@@ -1466,7 +1466,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       ROS_INFO("[MrsOctomapPlanner]: Calling path service with timestamp = %.3f at time %.3f.", path_stamp.toSec(), ros::Time::now().toSec());
       ros::Time tg_start = ros::Time::now();
 
-      mrs_msgs::GetPathSrv srv_get_path;
+      mrs_msgs::srv::GetPathSrv srv_get_path;
       srv_get_path.request.path.header.frame_id = octree_frame_;
       srv_get_path.request.path.header.stamp    = path_stamp;
       srv_get_path.request.path.fly_now         = false;
@@ -1496,7 +1496,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       for (int i = 0; i < waypoints.first.size(); i++) {
 
-        mrs_msgs::Reference ref;
+        mrs_msgs::msg::Reference ref;
         ref.position.x = waypoints.first[i].x();
         ref.position.y = waypoints.first[i].y();
         ref.position.z = waypoints.first[i].z();
@@ -1544,7 +1544,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
         if (i > 0) {
           double waypoint_dist = (waypoints.first[i] - waypoints.first[i - 1]).norm();
           if (waypoint_dist > _max_segment_length_for_heading_sampling_) {
-            mrs_msgs::Reference inter_ref;
+            mrs_msgs::msg::Reference inter_ref;
             inter_ref.position.x =
                 waypoints.first[i - 1].x() + (waypoints.first[i].x() - waypoints.first[i - 1].x()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
             inter_ref.position.y =
@@ -1649,7 +1649,7 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
 
       ROS_INFO("[MrsOctomapPlanner]: publishing trajectory reference");
 
-      mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
+      mrs_msgs::srv::TrajectoryReferenceSrv srv_trajectory_reference;
       srv_trajectory_reference.request.trajectory         = srv_get_path.response.trajectory;
       srv_trajectory_reference.request.trajectory.fly_now = true;
 
@@ -1693,11 +1693,11 @@ void OctomapPlanner::timerMain([[maybe_unused]] const ros::TimerEvent& evt) {
       }
 
       /* std::scoped_lock lock(mutex_initial_condition_); */
-      mrs_msgs::TrackerCommandConstPtr tracker_cmd  = sh_tracker_cmd_.getMsg();
+      mrs_msgs::msg::TrackerCommandConstPtr tracker_cmd  = sh_tracker_cmd_.getMsg();
       auto                             octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
 
       // transform the position cmd to the map frame
-      mrs_msgs::ReferenceStamped position_cmd_ref;
+      mrs_msgs::msg::ReferenceStamped position_cmd_ref;
       position_cmd_ref.header               = tracker_cmd->header;
       position_cmd_ref.reference.position.x = tracker_cmd->position.x;
       position_cmd_ref.reference.position.y = tracker_cmd->position.y;
@@ -1787,8 +1787,8 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
     return;
   }
 
-  mrs_msgs::MpcPredictionFullState            prediction           = sh_tracker_cmd_.getMsg()->full_state_prediction;
-  mrs_msgs::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
+  mrs_msgs::msg::MpcPredictionFullState            prediction           = sh_tracker_cmd_.getMsg()->full_state_prediction;
+  mrs_msgs::msg::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
 
   if (control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
 
@@ -1805,7 +1805,7 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
 
     // prepare the potential future trajectory
 
-    mrs_msgs::TrajectoryReference trajectory;
+    mrs_msgs::msg::TrajectoryReference trajectory;
     trajectory.header.stamp    = ret.value().header.stamp;
     trajectory.header.frame_id = transformer_->frame_to(ret.value());
     trajectory.fly_now         = true;
@@ -1814,7 +1814,7 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
 
     for (int i = 1; i < prediction.position.size(); i++) {
 
-      mrs_msgs::ReferenceStamped pose;
+      mrs_msgs::msg::ReferenceStamped pose;
       pose.header               = prediction.header;
       pose.reference.position.x = prediction.position[i].x;
       pose.reference.position.y = prediction.position[i].y;
@@ -1865,7 +1865,7 @@ void OctomapPlanner::timerFutureCheck([[maybe_unused]] const ros::TimerEvent& ev
               ROS_WARN("[MrsOctomapPlanner]: Detected OCCUPIED space along the planned trajectory! Cropped the trajectory to %d from %d points.",
                        int(trajectory.points.size()), orig_traj_size);
 
-              mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference;
+              mrs_msgs::srv::TrajectoryReferenceSrv srv_trajectory_reference;
               srv_trajectory_reference.request.trajectory = trajectory;
 
               bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
@@ -1984,7 +1984,7 @@ void OctomapPlanner::timerPublishVirtualObstacles([[maybe_unused]] const ros::Ti
     return;
   }
 
-  visualization_msgs::MarkerArray ma;
+  visualization_msgs::msg::MarkerArray ma;
   {
     std::scoped_lock lock(mutex_virtual_obstacles_);
 
@@ -2013,7 +2013,7 @@ void OctomapPlanner::timerPublishVirtualObstacles([[maybe_unused]] const ros::Ti
 
 /* setReplanningPoint() //{ */
 
-void OctomapPlanner::setReplanningPoint(const mrs_msgs::TrajectoryReference& traj) {
+void OctomapPlanner::setReplanningPoint(const mrs_msgs::msg::TrajectoryReference& traj) {
 
   const float x = traj.points.back().position.x;
   const float y = traj.points.back().position.y;
@@ -2078,9 +2078,9 @@ void OctomapPlanner::changeState(const State_t new_state) {
 
 /* getInitialCondition() //{ */
 
-std::optional<mrs_msgs::ReferenceStamped> OctomapPlanner::getInitialCondition(const ros::Time des_time) {
+std::optional<mrs_msgs::msg::ReferenceStamped> OctomapPlanner::getInitialCondition(const ros::Time des_time) {
 
-  const mrs_msgs::MpcPredictionFullState prediction_full_state = sh_tracker_cmd_.getMsg()->full_state_prediction;
+  const mrs_msgs::msg::MpcPredictionFullState prediction_full_state = sh_tracker_cmd_.getMsg()->full_state_prediction;
 
   if (prediction_full_state.input_id != 0 && prediction_full_state.input_id < path_id_) {
     ROS_ERROR_THROTTLE(1.0, "[MrsOctomapPlanner]: could not obtain initial condition, the input_id (%lu) does not match id of last sent path (%d).",
@@ -2098,7 +2098,7 @@ std::optional<mrs_msgs::ReferenceStamped> OctomapPlanner::getInitialCondition(co
     return {};
   }
 
-  mrs_msgs::ReferenceStamped orig_reference;
+  mrs_msgs::msg::ReferenceStamped orig_reference;
   orig_reference.header = prediction_full_state.header;
 
   ros::Time future_time_stamp;
@@ -2121,7 +2121,7 @@ std::optional<mrs_msgs::ReferenceStamped> OctomapPlanner::getInitialCondition(co
 
   if (result) {
 
-    mrs_msgs::ReferenceStamped transformed_reference = result.value();
+    mrs_msgs::msg::ReferenceStamped transformed_reference = result.value();
     transformed_reference.header.stamp               = future_time_stamp;
 
     return transformed_reference;
@@ -2163,7 +2163,7 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
     return std::vector<double>(0);
   }
 
-  const mrs_msgs::DynamicsConstraintsConstPtr constraints = sh_constraints_.getMsg();
+  const mrs_msgs::msg::DynamicsConstraintsConstPtr constraints = sh_constraints_.getMsg();
 
   const double v_max_vertical    = std::min(constraints->vertical_ascending_speed, constraints->vertical_descending_speed);
   const double a_max_vertical    = std::min(constraints->vertical_ascending_acceleration, constraints->vertical_descending_acceleration);
@@ -2346,14 +2346,14 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
 
 /* msgToMap() //{ */
 
-std::optional<OcTreePtr_t> OctomapPlanner::msgToMap(const octomap_msgs::OctomapConstPtr octomap) {
+std::optional<OcTreePtr_t> OctomapPlanner::msgToMap(const octomap_msgs::msg::OctomapConstPtr octomap) {
 
   octomap::AbstractOcTree* abstract_tree;
 
   if (octomap->binary) {
-    abstract_tree = octomap_msgs::binaryMsgToMap(*octomap);
+    abstract_tree = octomap_msgs::msg::binaryMsgToMap(*octomap);
   } else {
-    abstract_tree = octomap_msgs::fullMsgToMap(*octomap);
+    abstract_tree = octomap_msgs::msg::fullMsgToMap(*octomap);
   }
 
   if (!abstract_tree) {
@@ -2490,8 +2490,16 @@ void OctomapPlanner::addVirtualObstaclesToOctree(const std::shared_ptr<OcTree_t>
 }
 
 //}
+OctomapPlanner::OctomapPlanner(const rclcpp::NodeOptions& options) : rclcpp::Node("octomap_planner", options) {
+  timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1), std::bind(&OctomapPlanner::onInit, this));
+}
+
+OctomapServer::OctomapServer(const rclcpp::NodeOptions& options) : rclcpp::Node("octomap_server", options) {
+  timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1), std::bind(&OctomapServer::onInit, this));
+}
 
 }  // namespace mrs_octomap_planner
 
-#include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(mrs_octomap_planner::OctomapPlanner, nodelet::Nodelet)
+
+#include <rclcpp_components/register_node_macro.hpp>
+  RCLCPP_COMPONENTS_REGISTER_NODE(mrs_octomap_planner::OctomapPlanner)
