@@ -229,14 +229,14 @@ private:
   
   // service server callbacks
 
-  bool callbackGoto(mrs_msgs::srv::Vec4::Request& req, mrs_msgs::srv::Vec4::Response& res);
-  bool callbackStop(std_srvs::srv::Trigger::Request& req, std_srvs::srv::Trigger::Response& res);
-  bool callbackReference(mrs_msgs::srv::ReferenceStampedSrv::Request& req, mrs_msgs::srv::ReferenceStampedSrv::Response& res);
-  bool callbackSetPlanner(mrs_msgs::srv::String::Request& req, mrs_msgs::srv::String::Response& res);
-  bool callbackSetSafetyDistance(mrs_msgs::srv::Vec1::Request& req, mrs_msgs::srv::Vec1::Response& res);
-  bool callbackSetMaxAltitude(mrs_msgs::srv::Vec1::Request& req, mrs_msgs::srv::Vec1::Response& res);
-  bool callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReferenceArray::Request& req, mrs_msgs::srv::ValidateReferenceArray::Response& res);
-  bool callbackRemoveVirtualObstacles(std_srvs::srv::Trigger::Request& req, std_srvs::srv::Trigger::Response& res);
+  bool callbackGoto(mrs_msgs::srv::Vec4::ConstSharedPtr req, mrs_msgs::srv::Vec4::ConstSharedPtr res);
+  bool callbackStop(std_srvs::srv::Trigger::ConstSharedPtr req, std_srvs::srv::Trigger::ConstSharedPtr res);
+  bool callbackReference(mrs_msgs::srv::ReferenceStampedSrv::ConstSharedPtr req, mrs_msgs::srv::ReferenceStampedSrv::ConstSharedPtr res);
+  bool callbackSetPlanner(mrs_msgs::srv::String::ConstSharedPtr req, mrs_msgs::srv::String::ConstSharedPtr res);
+  bool callbackSetSafetyDistance(mrs_msgs::srv::Vec1::ConstSharedPtr req, mrs_msgs::srv::Vec1::ConstSharedPtr res);
+  bool callbackSetMaxAltitude(mrs_msgs::srv::Vec1::ConstSharedPtr req, mrs_msgs::srv::Vec1::ConstSharedPtr res);
+  bool callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReferenceArray::ConstSharedPtr req, mrs_msgs::srv::ValidateReferenceArray::ConstSharedPtr res);
+  bool callbackRemoveVirtualObstacles(std_srvs::srv::Trigger::ConstSharedPtr req, std_srvs::srv::Trigger::ConstSharedPtr res);
 
   // service clients
   mrs_lib::ServiceClientHandler<mrs_msgs::srv::GetPathSrv>             sc_get_trajectory_;
@@ -327,8 +327,9 @@ private:
 /* onInit() //{ */
 
 void OctomapPlanner::onInit() {
-
-  nh_ = nodelet::Nodelet::getMTPrivateNodeHandle();
+  timer_init_->cancel();
+  node_ = this->shared_from_this(); 
+  clock_ = node_->get_clock();
 
   rclcpp::Time::waitForValid();
 
@@ -508,6 +509,8 @@ void OctomapPlanner::onInit() {
   bv_processed_.setLinesScale(_lines_scale_);
 
   // | ------------------------- timers ------------------------- |
+
+  rclcpp ::TimerBase::SharedPtr timer_init_;
 
   timer_main_ = this->create_wall_timer(
         std::chrono::duration<double>(1.0 / _rate_main_timer_),
@@ -703,7 +706,7 @@ void OctomapPlanner::timeoutControlManagerDiag(const std::string& topic, const r
 
 /* callbackStop() //{ */
 
-bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::srv::Trigger::Request& req, std_srvs::srv::Trigger::Response& res) {
+bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::srv::Trigger::ConstSharedPtr req, std_srvs::srv::Trigger::ConstSharedPtr res) {
 
   if (!is_initialized_) {
     return false;
@@ -735,7 +738,7 @@ bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::srv::Trigger::Reque
 
 /* callbackGoto() //{ */
 
-bool OctomapPlanner::callbackGoto(mrs_msgs::srv::Vec4::Request& req, mrs_msgs::srv::Vec4::Response& res) {
+bool OctomapPlanner::callbackGoto(mrs_msgs::srv::Vec4::ConstSharedPtr req, mrs_msgs::srv::Vec4::ConstSharedPtr res) {
 
   /* prerequisities //{ */
 
@@ -810,7 +813,7 @@ bool OctomapPlanner::callbackGoto(mrs_msgs::srv::Vec4::Request& req, mrs_msgs::s
 
 /* callbackReference() //{ */
 
-bool OctomapPlanner::callbackReference(mrs_msgs::srv::ReferenceStampedSrv::Request& req, mrs_msgs::srv::ReferenceStampedSrv::Response& res) {
+bool OctomapPlanner::callbackReference(mrs_msgs::srv::ReferenceStampedSrv::ConstSharedPtr req, mrs_msgs::srv::ReferenceStampedSrv::ConstSharedPtr res) {
 
   /* prerequisities //{ */
 
@@ -879,7 +882,7 @@ bool OctomapPlanner::callbackReference(mrs_msgs::srv::ReferenceStampedSrv::Reque
 
 /* callbackSetPlanner() //{ */
 
-bool OctomapPlanner::callbackSetPlanner(mrs_msgs::srv::String::Request& req, mrs_msgs::srv::String::Response& res) {
+bool OctomapPlanner::callbackSetPlanner(mrs_msgs::srv::String::ConstSharedPtr req, mrs_msgs::srv::String::ConstSharedPtr res) {
 
   if (!is_initialized_) {
     return false;
@@ -905,7 +908,7 @@ bool OctomapPlanner::callbackSetPlanner(mrs_msgs::srv::String::Request& req, mrs
 
 /* callbackSetSafetyDistance() //{ */
 
-bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::srv::Vec1::Request& req, mrs_msgs::srv::Vec1::Response& res) {
+bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::srv::Vec1::ConstSharedPtr req, mrs_msgs::srv::Vec1::ConstSharedPtr res) {
 
   if (!is_initialized_) {
     return false;
@@ -941,7 +944,7 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::srv::Vec1::Request& req
 
 /* callbackSetMaxAltitude() //{ */
 
-bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::srv::Vec1::Request& req, mrs_msgs::srv::Vec1::Response& res) {
+bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::srv::Vec1::ConstSharedPtr req, mrs_msgs::srv::Vec1::ConstSharedPtr res) {
 
   if (!is_initialized_) {
     return false;
@@ -967,7 +970,7 @@ bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::srv::Vec1::Request& req, m
 //
 /* callbackAddVirtualObstacle() //{ */
 
-bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReferenceArray::Request& req, mrs_msgs::srv::ValidateReferenceArray::Response& res) {
+bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReferenceArray::ConstSharedPtr req, mrs_msgs::srv::ValidateReferenceArray::ConstSharedPtr res) {
 
   if (!is_initialized_) {
     res.success = {false};
@@ -1111,7 +1114,7 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReference
 
 /* callbackRemoveVirtualObstacles() //{ */
 
-bool OctomapPlanner::callbackRemoveVirtualObstacles(std_srvs::srv::Trigger::Request& req, std_srvs::srv::Trigger::Response& res) {
+bool OctomapPlanner::callbackRemoveVirtualObstacles(std_srvs::srv::Trigger::ConstSharedPtr req, std_srvs::srv::Trigger::ConstSharedPtr res) {
 
   if (!is_initialized_) {
     return false;
@@ -1311,7 +1314,7 @@ void OctomapPlanner::timerMain() {
 
       /* plan the path to goal */ /*//{*/
       std::pair<std::vector<octomap::point3d>, bool> waypoints;
-      /* ros::Time                                      mct_start = this->now(); */
+      /* rclcpp::Time                                      mct_start = this->now(); */
 
       auto safe_obstacle_distance = mrs_lib::get_mutexed(mutex_safety_distance_, _safe_obstacle_distance_);
       auto max_altitude           = mrs_lib::get_mutexed(mutex_max_altitude_, _max_altitude_);
@@ -1830,7 +1833,7 @@ void OctomapPlanner::timerFutureCheck() {
 
   RCLCPP_INFO_ONCE(this->get_logger(),"[MrsOctomapPlanner]: future check timer spinning");
 
-  const mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerFutureCheck", ros::Duration(_scope_timer_duration_), _scope_timer_enabled_);
+  const mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerFutureCheck", rclcpp::Duration(_scope_timer_duration_), _scope_timer_enabled_);
 
   std::shared_ptr<OcTree_t> octree;
 
@@ -2022,10 +2025,10 @@ void OctomapPlanner::timerDiagnostics() {
 
   auto planner_time_flag = mrs_lib::get_mutexed(mutex_planner_time_flag_, planner_time_flag_);
 
-  if (_restart_planner_on_deadlock_ && planner_time_flag != ros::Time(0)) {
+  if (_restart_planner_on_deadlock_ && planner_time_flag != rclcpp::Time(0)) {
     if ((this->now() - planner_time_flag).toSec() > planner_deadlock_timeout_) {
       RCLCPP_ERROR(this->get_logger(),"[MrsOctomapPlanner]: Planner is deadlocked, restarting!");
-      ros::shutdown();
+      rclcpp::shutdown();
     }
   }
 }
@@ -2053,7 +2056,7 @@ void OctomapPlanner::timerPublishVirtualObstacles() {
     for (int i = 0; i < virtual_obstacles_.size(); i++) {
       auto& obst = virtual_obstacles_.at(i);
 
-      obst.vis_marker.header.stamp = evt.current_real;
+      obst.vis_marker.header.stamp = this->now();
       obst.vis_marker.id           = i;
       ma.markers.push_back(obst.vis_marker);
     }
@@ -2138,7 +2141,7 @@ void OctomapPlanner::changeState(const State_t new_state) {
 
 /* getInitialCondition() //{ */
 
-std::optional<mrs_msgs::msg::ReferenceStamped> OctomapPlanner::getInitialCondition(const ros::Time des_time) {
+std::optional<mrs_msgs::msg::ReferenceStamped> OctomapPlanner::getInitialCondition(const rclcpp::Time des_time) {
 
   const mrs_msgs::msg::MpcPredictionFullState prediction_full_state = sh_tracker_cmd_.getMsg()->full_state_prediction;
 
@@ -2161,7 +2164,7 @@ std::optional<mrs_msgs::msg::ReferenceStamped> OctomapPlanner::getInitialConditi
   mrs_msgs::msg::ReferenceStamped orig_reference;
   orig_reference.header = prediction_full_state.header;
 
-  ros::Time future_time_stamp;
+  rclcpp::Time future_time_stamp;
 
   for (int i = 0; i < prediction_full_state.stamps.size(); i++) {
 
@@ -2552,10 +2555,6 @@ void OctomapPlanner::addVirtualObstaclesToOctree(const std::shared_ptr<OcTree_t>
 //}
 OctomapPlanner::OctomapPlanner(const rclcpp::NodeOptions& options) : rclcpp::Node("octomap_planner", options) {
   timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1), std::bind(&OctomapPlanner::onInit, this));
-}
-
-OctomapServer::OctomapServer(const rclcpp::NodeOptions& options) : rclcpp::Node("octomap_server", options) {
-  timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1), std::bind(&OctomapServer::onInit, this));
 }
 
 }  // namespace mrs_octomap_planner
