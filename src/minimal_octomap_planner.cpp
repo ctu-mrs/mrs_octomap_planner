@@ -1,7 +1,7 @@
 #include <mrs_lib/batch_visualizer.h>
 #include <mrs_lib/mutex.h>
 #include <mrs_lib/param_loader.h>
-#include <mrs_lib/subscribe_handler.h>
+#include <mrs_lib/subscriber_handler.h>
 #include <mrs_lib/transformer.h>
 #include <mrs_octomap_planner/Path.h>
 #include <mrs_octomap_tools/octomap_methods.h>
@@ -27,7 +27,6 @@ namespace mrs_octomap_planner
     rclcpp::Node::SharedPtr node_;
 
     bool        is_initialized_ = false;
-    std::string _uav_name_;
 
     // params
     double _safe_obstacle_distance_      = 0.0;
@@ -49,11 +48,11 @@ namespace mrs_octomap_planner
     std::string                               octree_frame_;
     std::shared_ptr<mrs_lib::BatchVisualizer> bv_planner_;
 
-    mrs_lib::SubscribeHandler<octomap_msgs::msg::Octomap> sh_octomap_;
+    mrs_lib::SubscriberHandler<octomap_msgs::msg::Octomap> sh_octomap_;
 
     void timeoutOctomap(const std::string& topic,
-                        const ros::Time&   last_msg);
-    void callbackOctomap(const octomap_msgs::msg::Octomap::ConstPtr msg);
+                        const rclcpp::Time&   last_msg);
+    void callbackOctomap(const octomap_msgs::msg::Octomap::ConstSharedPtr msg);
 
     ros::ServiceServer service_server_get_path_;
 
@@ -75,7 +74,7 @@ namespace mrs_octomap_planner
 
     ROS_INFO("[MrsMinimalOctomapPlanner]: initializing");
 
-    mrs_lib::ParamLoader param_loader(nh_, "MrsMinimalOctomapPlanner");
+    mrs_lib::ParamLoader param_loader(this->shared_from_this(), "MrsMinimalOctomapPlanner");
 
     param_loader.loadParam("uav_name", _uav_name_);
 
@@ -99,22 +98,20 @@ namespace mrs_octomap_planner
       ros::shutdown();
     }
 
-    mrs_lib::SubscribeHandlerOptions shopts;
-    shopts.nh                 = nh_;
+    auto callback_octomap = [this](const octomap_msgs::msg::Octomap::ConstSharedPtr msg) {
+      this->callbackOctomap(msg);
+    };
+
+    mrs_lib::SubscriberHandlerOptions shopts;
+    shopts.nh                 = node_;
     shopts.node_name          = "MrsMinimalOctomapPlanner";
     shopts.no_message_timeout = mrs_lib::no_timeout;
     shopts.threadsafe         = true;
     shopts.autostart          = true;
-    shopts.queue_size         = 1;
-    shopts.transport_hints    = ros::TransportHints().tcpNoDelay();
 
-    sh_octomap_ = mrs_lib::SubscribeHandler<octomap_msgs::msg::Octomap>(shopts,
-                                                                   "octomap_in",
-                                                                   ros::Duration(5.0),
-                                                                   &MinimalOctomapPlanner::timeoutOctomap,
-                                                                   this,
-                                                                   &MinimalOctomapPlanner::callbackOctomap,
-                                                                   this);
+    sh_octomap_ = mrs_lib::SubscriberHandler<octomap_msgs::msg::Octomap>(shopts,
+                                                                   "~/octomap_in",
+                                                                   callback_octomap);
 
     service_server_get_path_ = nh_.advertiseService("get_path_in", &MinimalOctomapPlanner::callbackGetPath, this);
 

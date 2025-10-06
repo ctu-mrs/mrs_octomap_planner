@@ -210,7 +210,7 @@ private:
   // publishers
 
   mrs_lib::PublisherHandler<mrs_modules_msgs::msg::OctomapPlannerDiagnostics> pub_diagnostics_;
-  mrs_lib::PublisherHandler<vizualization_msgs::msg::MarkerArray>       pub_virtual_obstacles_;
+  mrs_lib::PublisherHandler<vizualization_msgs::msg::MarkerArray> pub_virtual_obstacles_;
 
   // subscriber callbacks
   void callbackTrackerCmd(const mrs_msgs::msg::TrackerCommand::ConstSharedPtr msg);
@@ -467,7 +467,7 @@ void OctomapPlanner::onInit() {
 
   // | ----------------------- subscribers ---------------------- |
 
-  mrs_lib::SubscribeHandlerOptions shopts;
+  mrs_lib::SubscriberHandlerOptions shopts;
   shopts.nh                 = node_;
   shopts.node_name          = "Pathfinder";
   shopts.no_message_timeout = mrs_lib::no_timeout;
@@ -480,7 +480,7 @@ void OctomapPlanner::onInit() {
   sh_tracker_cmd_           = mrs_lib::SubscriberHandler<mrs_msgs::msg::TrackerCommand>(shopts, "~/tracker_cmd_in");
   sh_octomap_               = mrs_lib::SubscriberHandler<octomap_msgs::msg::Octomap>(shopts, "~/octomap_in");
   sh_control_manager_diag_  = mrs_lib::SubscriberHandler<mrs_msgs::msg::ControlManagerDiagnostics>(shopts, "~/control_manager_diag_in");
-  sh_constraints_           = mrs_lib::SubscribeHandler<mrs_msgs::msg::DynamicsConstraints>(shopts, "~/constraints_in");
+  sh_constraints_           = mrs_lib::SubscriberHandler<mrs_msgs::msg::DynamicsConstraints>(shopts, "~/constraints_in");
 
   // | --------------------- service clients -------------------- |
 
