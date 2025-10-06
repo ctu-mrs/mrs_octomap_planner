@@ -5,10 +5,9 @@
 #include <mrs_lib/transformer.h>
 #include <mrs_octomap_planner/Path.h>
 #include <mrs_octomap_tools/octomap_methods.h>
-#include <nodelet/nodelet.h>
 #include <octomap/OcTree.h>
-#include <octomap_msgs/Octomap.h>
-#include <ros/ros.h>
+#include <octomap_msgs/msg/Octomap.h>
+#include <rclcpp/rclcpp.h>
 #include <astar_planner.hpp>
 #include <iostream>
 #include <memory>
@@ -18,13 +17,14 @@ namespace mrs_octomap_planner
   using OcTree_t          = octomap::OcTree;
   using OcTreeSharedPtr_t = std::shared_ptr<octomap::OcTree>;
 
-  class MinimalOctomapPlanner : public nodelet::Nodelet
+  class MinimalOctomapPlanner : public rclcpp::Node
   {
   public:
+    explicit MinimalOctomapPlanner(const rclcpp::NodeOptions & options);
     virtual void onInit();
 
   private:
-    ros::NodeHandle nh_;
+    rclcpp::Node::SharedPtr node_;
 
     bool        is_initialized_ = false;
     std::string _uav_name_;
@@ -49,11 +49,11 @@ namespace mrs_octomap_planner
     std::string                               octree_frame_;
     std::shared_ptr<mrs_lib::BatchVisualizer> bv_planner_;
 
-    mrs_lib::SubscribeHandler<octomap_msgs::Octomap> sh_octomap_;
+    mrs_lib::SubscribeHandler<octomap_msgs::msg::Octomap> sh_octomap_;
 
     void timeoutOctomap(const std::string& topic,
                         const ros::Time&   last_msg);
-    void callbackOctomap(const octomap_msgs::Octomap::ConstPtr msg);
+    void callbackOctomap(const octomap_msgs::msg::Octomap::ConstPtr msg);
 
     ros::ServiceServer service_server_get_path_;
 
@@ -62,13 +62,15 @@ namespace mrs_octomap_planner
 
     std::unique_ptr<mrs_lib::Transformer> transformer_;
 
-    std::optional<OcTreeSharedPtr_t> msgToMap(const octomap_msgs::OctomapConstPtr octomap);
+    std::optional<OcTreeSharedPtr_t> msgToMap(const octomap_msgs::msg::OctomapConstPtr octomap);
   };
 
   void MinimalOctomapPlanner::onInit()
   {
-    nh_ = nodelet::Nodelet::getMTPrivateNodeHandle();
-
+    timer_init_->cancel();
+    node_ = this->shared_from_this(); 
+    clock_ = node_->get_clock();
+  
     ros::Time::waitForValid();
 
     ROS_INFO("[MrsMinimalOctomapPlanner]: initializing");
@@ -106,7 +108,7 @@ namespace mrs_octomap_planner
     shopts.queue_size         = 1;
     shopts.transport_hints    = ros::TransportHints().tcpNoDelay();
 
-    sh_octomap_ = mrs_lib::SubscribeHandler<octomap_msgs::Octomap>(shopts,
+    sh_octomap_ = mrs_lib::SubscribeHandler<octomap_msgs::msg::Octomap>(shopts,
                                                                    "octomap_in",
                                                                    ros::Duration(5.0),
                                                                    &MinimalOctomapPlanner::timeoutOctomap,
@@ -129,7 +131,7 @@ namespace mrs_octomap_planner
     ROS_INFO("[MrsMinimalOctomapPlanner]: initialized");
   }
 
-  void MinimalOctomapPlanner::callbackOctomap(const octomap_msgs::Octomap::ConstPtr msg)
+  void MinimalOctomapPlanner::callbackOctomap(const octomap_msgs::msg::Octomap::ConstPtr msg)
   {
     if (!is_initialized_) {
       return;
@@ -147,15 +149,15 @@ namespace mrs_octomap_planner
       mrs_lib::set_mutexed(mutex_octree_,msg->header.frame_id, octree_frame_);
   }
 
-  std::optional<OcTreeSharedPtr_t> MinimalOctomapPlanner::msgToMap(const octomap_msgs::OctomapConstPtr octomap)
+  std::optional<OcTreeSharedPtr_t> MinimalOctomapPlanner::msgToMap(const octomap_msgs::msg::OctomapConstPtr octomap)
   {
     octomap::AbstractOcTree* abstract_tree;
 
     if (octomap->binary) {
-      abstract_tree = octomap_msgs::binaryMsgToMap(*octomap);
+      abstract_tree = octomap_msgs::msg::binaryMsgToMap(*octomap);
     }
     else {
-      abstract_tree = octomap_msgs::fullMsgToMap(*octomap);
+      abstract_tree = octomap_msgs::msg::fullMsgToMap(*octomap);
     }
 
     if (!abstract_tree) {
@@ -239,7 +241,7 @@ namespace mrs_octomap_planner
         ROS_WARN("[MrsMinimalOctomapPlanner]: No path found");
         res.success = false;
         res.message = "No path found";
-        res.path    = std::vector<geometry_msgs::Point>();
+        res.path    = std::vector<geometry_msgs::msg::Point>();
         return true;
       }
       
@@ -268,7 +270,7 @@ namespace mrs_octomap_planner
       }
     }
 
-    std::vector<geometry_msgs::Point> tf_path;
+    std::vector<geometry_msgs::msg::Point> tf_path;
     auto                              from_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
     auto                              to_frame   = req.header.frame_id;
     auto                              ret        = transformer_->getTransform(from_frame, to_frame, ros::Time::now());
@@ -284,7 +286,7 @@ namespace mrs_octomap_planner
 
     for (auto& point : path.first) {
 
-      geometry_msgs::PointStamped tmp_pt;
+      geometry_msgs::msg::PointStamped tmp_pt;
       tmp_pt.header.stamp    = ros::Time::now();
       tmp_pt.header.frame_id = from_frame;
       tmp_pt.point.x         = point.x();
@@ -309,8 +311,15 @@ namespace mrs_octomap_planner
     res.path            = tf_path;
     return true;
   }
+
+
+
+MinimalOctomapPlanner::MinimalOctomapPlanner(const rclcpp::NodeOptions& options) : rclcpp::Node("minimal_octomap_planner", options) {
+  timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1), std::bind(&OctomapServer::onInit, this));
 }
 
-#include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(mrs_octomap_planner::MinimalOctomapPlanner,
-                       nodelet::Nodelet)
+}  // mrs_octomap_planner
+
+
+#include <rclcpp_components/register_node_macro.hpp>
+RCLCPP_COMPONENTS_REGISTER_NODE(mrs_octomap_planner::MinimalOctomapPlanner)
