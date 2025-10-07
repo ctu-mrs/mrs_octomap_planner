@@ -72,7 +72,7 @@ namespace mrs_octomap_planner
   
     ros::Time::waitForValid();
 
-    ROS_INFO("[MrsMinimalOctomapPlanner]: initializing");
+    RCLCPP_INFO(this->get_logger(),"[MrsMinimalOctomapPlanner]: initializing");
 
     mrs_lib::ParamLoader param_loader(this->shared_from_this(), "MrsMinimalOctomapPlanner");
 
@@ -94,7 +94,7 @@ namespace mrs_octomap_planner
     param_loader.loadParam("viz/scale/lines", _scale_lines_);
 
     if (!param_loader.loadedSuccessfully()) {
-      ROS_ERROR("[MrsMinimalOctomapPlanner]: Could not load all parameters");
+      RCLCPP_ERROR(this->get_logger(),("[MrsMinimalOctomapPlanner]: Could not load all parameters");
       ros::shutdown();
     }
 
@@ -125,7 +125,7 @@ namespace mrs_octomap_planner
 
     is_initialized_ = true;
 
-    ROS_INFO("[MrsMinimalOctomapPlanner]: initialized");
+    RCLCPP_INFO(this->get_logger(),"[MrsMinimalOctomapPlanner]: initialized");
   }
 
   void MinimalOctomapPlanner::callbackOctomap(const octomap_msgs::msg::Octomap::ConstPtr msg)
@@ -134,12 +134,12 @@ namespace mrs_octomap_planner
       return;
     }
 
-    ROS_INFO_ONCE("[MrsMinimalOctomapPlanner]: getting octomap");
+    RCLCPP_INFO_ONCE(this->get_logger(),"[MrsMinimalOctomapPlanner]: getting octomap");
 
     std::optional<OcTreeSharedPtr_t> octree_local = msgToMap(msg);
 
     if (!octree_local) {
-      ROS_WARN_THROTTLE(1.0, "[MrsMinimalOctomapPlanner]: received map is empty!");
+      RCLCPP_WARN_THROTTLE(this->get_logger(),*this->get_clock(),1000, "[MrsMinimalOctomapPlanner]: received map is empty!");
       return;
     }
       mrs_lib::set_mutexed(mutex_octree_,octree_local.value(), octree_);
@@ -158,7 +158,7 @@ namespace mrs_octomap_planner
     }
 
     if (!abstract_tree) {
-      ROS_WARN("[MrsMinimalOctomapPlanner]: Octomap message is empty! can not convert to OcTree");
+      RCLCPP_WARN(this->get_logger(),"[MrsMinimalOctomapPlanner]: Octomap message is empty! can not convert to OcTree");
       return {};
     }
     else {
@@ -177,7 +177,7 @@ namespace mrs_octomap_planner
       return;
     }
 
-    ROS_WARN_THROTTLE(1.0, "[MrsMinimalOctomapPlanner]: octomap timeout!");
+    RCLCPP_WARN_THROTTLE(this->get_logger(),*this->get_clock(),1000, "[MrsMinimalOctomapPlanner]: octomap timeout!");
   }
 
   bool MinimalOctomapPlanner::callbackGetPath(mrs_octomap_planner::Path::Request&  req,
@@ -190,7 +190,7 @@ namespace mrs_octomap_planner
     const bool got_octomap = sh_octomap_.hasMsg() && (ros::Time::now() - sh_octomap_.lastMsgTime()).toSec() < 2.0;
 
     if (!got_octomap) {
-      ROS_INFO_THROTTLE(1.0,
+      RCLCPP_INFO_THROTTLE(this->get_logger(),*this->get_clock(),1000,
                         "[MrsMinimalOctomapPlanner]: waiting for data: octomap = %s",
                         got_octomap ? "TRUE" : "FALSE");
       return false;
@@ -229,13 +229,13 @@ namespace mrs_octomap_planner
       path.first.push_back(plan_to);
       std::stringstream ss;
       ss << "Found complete path of length = " << path.first.size();
-      ROS_INFO_STREAM("[MrsMinimalOctomapPlanner]: " << ss.str());
+      RCLCPP_INFO_STREAM(this->get_logger(),"[MrsMinimalOctomapPlanner]: " << ss.str());
       res.message = ss.str();
     }
     else {
       // no path at all
       if (path.first.size() < 2) {
-        ROS_WARN("[MrsMinimalOctomapPlanner]: No path found");
+        RCLCPP_WARN(this->get_logger(),"[MrsMinimalOctomapPlanner]: No path found");
         res.success = false;
         res.message = "No path found";
         res.path    = std::vector<geometry_msgs::msg::Point>();
@@ -245,7 +245,7 @@ namespace mrs_octomap_planner
       // path not until the end but to a closer point
       std::stringstream ss;
       ss << "Incomplete path found of length = " << path.first.size();
-      ROS_INFO_STREAM("[MrsMinimalOctomapPlanner]: " << ss.str());
+      RCLCPP_INFO_STREAM(this->get_logger(),"[MrsMinimalOctomapPlanner]: " << ss.str());
       res.message = ss.str();
 
       double front_x = path.first.front().x();
@@ -273,7 +273,7 @@ namespace mrs_octomap_planner
     auto                              ret        = transformer_->getTransform(from_frame, to_frame, ros::Time::now());
 
     if (!ret) {
-      ROS_ERROR_STREAM_THROTTLE(1.0,
+      RCLCPP_ERROR_STREAM_STREAM(this->get_logger(),*this->get_clock(),1000,
                                 "[MrsMinimalOctomapPlanner]: Failed to transform path from " << from_frame << " to "
                                                                                              << to_frame);
       return false;
@@ -293,7 +293,7 @@ namespace mrs_octomap_planner
       auto transformed_point = transformer_->transform(tmp_pt, tf);
 
       if (!transformed_point) {
-        ROS_ERROR_STREAM_THROTTLE(1.0,
+        RCLCPP_ERROR_STREAM_STREAM(this->get_logger(),*this->get_clock(),1000,
                                   "[MrsMinimalOctomapPlanner]: Failed to transform path point from "
                                       << from_frame << " to " << to_frame << " even when TF exists");
         return false;
