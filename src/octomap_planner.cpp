@@ -250,15 +250,15 @@ private:
 
   // timers
 
-    std::shared_ptr<TimerType> timer_main_;
-    std::shared_ptr<TimerType> timer_diagnostics_;
-    std::shared_ptr<TimerType> timer_future_check_;
-    std::shared_ptr<TimerType> timer_publish_virtual_obstacles_;
+  std::shared_ptr<TimerType> timer_main_;
+  std::shared_ptr<TimerType> timer_diagnostics_;
+  std::shared_ptr<TimerType> timer_future_check_;
+  std::shared_ptr<TimerType> timer_publish_virtual_obstacles_;
 
-    void timerMain();
-    void timerDiagnostics();
-    void timerFutureCheck();
-    void timerPublishVirtualObstacles();
+  void timerMain();
+  void timerDiagnostics();
+  void timerFutureCheck();
+  void timerPublishVirtualObstacles();
 
   // diagnostics
   mrs_modules_msgs::msg::OctomapPlannerDiagnostics diagnostics_;
