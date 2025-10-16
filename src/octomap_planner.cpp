@@ -7,7 +7,7 @@
 #include <mrs_octomap_tools/octomap_methods.h>
 
 #include <octomap_msgs/msg/octomap.h>
-#include <octomap_msgs/msg/conversions.h>
+#include <octomap_msgs/conversions.h>
 
 #include <algorithm>
 #include <chrono>
@@ -18,7 +18,7 @@
 #include <mrs_lib/attitude_converter.h>
 #include <mrs_lib/batch_visualizer.h>
 #include <mrs_lib/param_loader.h>
-#include <mrs_lib/subscribe_handler.h>
+#include <mrs_lib/subscriber_handler.h>
 #include <mrs_lib/mutex.h>
 #include <mrs_lib/scope_timer.h>
 #include <mrs_lib/service_client_handler.h>
@@ -57,6 +57,12 @@ namespace mrs_octomap_planner
 {
 
 /* defines //{ */
+
+#if USE_ROS_TIMER == 1
+    typedef mrs_lib::ROSTimer TimerType;
+    #else
+    typedef mrs_lib::ThreadTimer TimerType;
+    #endif
 
 typedef enum
 {
@@ -217,15 +223,14 @@ private:
   void callbackOctomap(const octomap_msgs::msg::Octomap::ConstSharedPtr msg);
 
   // service servers
-
-  rclcpp::Service<mrs_msgs::srv::Vec4>::SharedPtr                   service_server_goto_;
-  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                service_server_stop_; 
-  rclcpp::Service<mrs_msgs::srv::ReferenceStampedSrv>::SharedPtr    service_server_reference_;
-  rclcpp::Service<mrs_msgs::srv::String>::SharedPtr                 service_server_set_planner_;
-  rclcpp::Service<mrs_msgs::srv::Vec1>::SharedPtr                   service_server_set_safety_distance_;
-  rclcpp::Service<mrs_msgs::srv::Vec1>::SharedPtr                   service_server_set_max_altitude_;
-  rclcpp::Service<mrs_msgs::srv::ValidateReferenceArray>::SharedPtr service_server_add_virtual_obstacle_;
-  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                service_server_remove_virtual_obstacles_;
+  rclcpp::Service<mrs_msgs::srv::Vec4>::SharedPtr                     service_server_goto_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                  service_server_stop_; 
+  rclcpp::Service<mrs_msgs::srv::ReferenceStampedSrv>::SharedPtr      service_server_reference_;
+  rclcpp::Service<mrs_msgs::srv::String>::SharedPtr                   service_server_set_planner_;
+  rclcpp::Service<mrs_msgs::srv::Vec1>::SharedPtr                     service_server_set_safety_distance_;
+  rclcpp::Service<mrs_msgs::srv::Vec1>::SharedPtr                     service_server_set_max_altitude_;
+  rclcpp::Service<mrs_msgs::srv::ValidateReferenceArray>::SharedPtr   service_server_add_virtual_obstacle_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                  service_server_remove_virtual_obstacles_;
   
   // service server callbacks
 
@@ -244,15 +249,16 @@ private:
   mrs_lib::ServiceClientHandler<std_srvs::srv::Trigger>                sc_hover_;
 
   // timers
-  rclcpp::TimerBase::SharedPtr timer_main_;
-  rclcpp::TimerBase::SharedPtr timer_diagnostics_;
-  rclcpp::TimerBase::SharedPtr timer_future_check_;
-  rclcpp::TimerBase::SharedPtr timer_publish_virtual_obstacles_;
 
-  void       timerMain();
-  void       timerDiagnostics();
-  void       timerFutureCheck();
-  void       timerPublishVirtualObstacles();
+    std::shared_ptr<TimerType> timer_main_;
+    std::shared_ptr<TimerType> timer_diagnostics_;
+    std::shared_ptr<TimerType> timer_future_check_;
+    std::shared_ptr<TimerType> timer_publish_virtual_obstacles_;
+
+    void timerMain();
+    void timerDiagnostics();
+    void timerFutureCheck();
+    void timerPublishVirtualObstacles();
 
   // diagnostics
   mrs_modules_msgs::msg::OctomapPlannerDiagnostics diagnostics_;
@@ -271,7 +277,7 @@ private:
 
   // planning
   std::atomic<int> replanning_counter_ = 0;
-  rclcpp::Time        time_last_plan_;
+  rclcpp::Time     time_last_plan_;
   int              path_id_                         = 0;
   bool             new_user_goal_received_          = false;
   bool             first_planning_for_current_goal_ = false;
@@ -362,7 +368,6 @@ void OctomapPlanner::onInit() {
   param_loader.loadParam("diagnostics_timer/rate", _rate_diagnostics_timer_);
   param_loader.loadParam("future_check_timer/rate", _rate_future_check_timer_);
   param_loader.loadParam("virtual_obstacle_publishing_timer/rate", _rate_virtual_obstacle_pub_timer_);
-
   param_loader.loadParam("safe_obstacle_distance/default", _safe_obstacle_distance_);
   param_loader.loadParam("safe_obstacle_distance/min", _safe_obstacle_distance_min_);
   param_loader.loadParam("safe_obstacle_distance/max", _safe_obstacle_distance_max_);
@@ -512,26 +517,26 @@ void OctomapPlanner::onInit() {
 
   rclcpp ::TimerBase::SharedPtr timer_init_;
 
-  timer_main_ = this->create_wall_timer(
-        std::chrono::duration<double>(1.0 / _rate_main_timer_),
-        std::bind(&OctomapPlanner::timerMain, this)
-  );
-  timer_future_check_ = this->create_wall_timer(
-        std::chrono::duration<double>(1.0 / _rate_future_check_timer_),
-        std::bind(&OctomapPlanner::timerFutureCheck, this)
-  );
-  timer_diagnostics_ = this->create_wall_timer(
-        std::chrono::duration<double>(1.0 / _rate_diagnostics_timer_),
-        std::bind(&OctomapPlanner::timerDiagnostics, this)
-  );
-  timer_publish_virtual_obstacles_ = this->create_wall_timer(
-        std::chrono::duration<double>(1.0 / _rate_virtual_obstacle_pub_timer_),
-        std::bind(&OctomapPlanner::timerPublishVirtualObstacles, this)
-  );
+  std::function<void> callback_timer_main = std::bind(&OctomapPlanner::timerMain, this);
+  timer_main_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_main_timer_, clock_), callback_timer_main);
+  timer_main_->start();
+
+  std::function<void> callback_timer_future_check = std::bind(&OctomapPlanner::timerFutureCheck, this);
+  timer_future_check_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_future_check_timer_, clock_), callback_timer_future_check);
+  timer_future_check_->start(); 
+
+  std::function<void> callback_timer_diagnostics = std::bind(&OctomapPlanner::timerDiagnostics, this);
+  timer_diagnostics_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_diagnostics_timer_, clock_), callback_timer_diagnostics);
+  timer_diagnostics_->start();
+
+  std::function<void> callback_timer_publish_virtual_obstacles = std::bind(&OctomapPlanner::timerPublishVirtualObstacles, this);
+  timer_publish_virtual_obstacles_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_virtual_obstacle_pub_timer_, clock_), callback_timer_publish_virtual_obstacles);
+  timer_publish_virtual_obstacles_->start();
+
   // | --------------------- service servers -------------------- |
 
 
-  service_server_goto_ =this->create_service<mrs_msgs::srv::Vec4>(
+  service_server_goto_ = this->create_service<mrs_msgs::srv::Vec4>(
             "~/goto_in",
             std::bind(&OctomapPlanner::callbackGoto, this,
                       std::placeholders::_1, std::placeholders::_2));
