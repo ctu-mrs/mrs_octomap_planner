@@ -72,18 +72,18 @@ AstarPlanner::AstarPlanner(double safe_obstacle_distance, double euclidean_dista
 std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octomap::point3d &start_coord, const octomap::point3d &goal_coord,
                                                                       std::shared_ptr<octomap::OcTree> mapping_tree, const double timeout) {
 
-  ROS_INFO("[Astar]: Astar: user goal [%.2f, %.2f, %.2f]", goal_coord.x(), goal_coord.y(), goal_coord.z());
+  RCLCPP_INFO(this->get_logger(),"[Astar]: Astar: user goal [%.2f, %.2f, %.2f]", goal_coord.x(), goal_coord.y(), goal_coord.z());
 
-  auto time_start = ros::Time::now();
+  auto time_start = this->now();
 
   this->timeout_threshold = timeout;
 
-  ros::Time time_start_planning_tree = ros::Time::now();
+  rclcpp::Time time_start_planning_tree = this->now();
   auto      tree_with_tunnel         = createPlanningTree(mapping_tree, start_coord, planning_tree_resolution, start_coord, 10.0);
-  ROS_INFO_THROTTLE(1.0, "[Astar]: the planning tree took %.4f s to create", (ros::Time::now() - time_start_planning_tree).toSec());
+  RCLCPP_INFO_THROTTLE(this->get_logger(),*this->get_clock(),1000, "[Astar]: the planning tree took %.4f s to create", (this->now() - time_start_planning_tree).toSec());
 
   if (!tree_with_tunnel) {
-    ROS_WARN_THROTTLE(1.0, "[Astar]: could not create a planning tree");
+    RCLCPP_WARN_THROTTLE(this->get_logger(),*this->get_clock(),1000,, "[Astar]: could not create a planning tree");
     return {std::vector<octomap::point3d>(), false};
   }
 
@@ -96,14 +96,14 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
   bool original_goal = true;
 
   if (map_query == NULL) {
-    ROS_INFO("[Astar]: Goal is outside of map");
+    RCLCPP_INFO(this->get_logger(),"[Astar]: Goal is outside of map");
     map_goal = generateTemporaryGoal(start_coord, goal_coord, tree);
-    ROS_INFO("[Astar]: Generated a temporary goal: [%.2f, %.2f, %.2f]", map_goal.x(), map_goal.y(), map_goal.z());
+    RCLCPP_INFO(this->get_logger(),"[Astar]: Generated a temporary goal: [%.2f, %.2f, %.2f]", map_goal.x(), map_goal.y(), map_goal.z());
     original_goal = false;
   } else if (map_query->getValue() == TreeValue::OCCUPIED) {
-    ROS_INFO("[Astar:] Goal is inside an inflated obstacle");
+    RCLCPP_INFO(this->get_logger(),"[Astar:] Goal is inside an inflated obstacle");
     map_goal = nearestFreeCoord(goal_coord, start_coord, tree);
-    ROS_INFO("[Astar]: Generated a replacement goal: [%.2f, %.2f, %.2f]", map_goal.x(), map_goal.y(), map_goal.z());
+    RCLCPP_INFO(this->get_logger(),"[Astar]: Generated a replacement goal: [%.2f, %.2f, %.2f]", map_goal.x(), map_goal.y(), map_goal.z());
     original_goal = false;
   }
 
@@ -130,7 +130,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   if (distEuclidean(planning_start, map_goal) <= 2 * planning_tree_resolution) {
 
-    ROS_INFO("[Astar]: Path special case, we are there");
+    RCLCPP_INFO(this->get_logger(),"[Astar]: Path special case, we are there");
 
     bv->clearVisuals();
     bv->clearBuffers();
@@ -142,10 +142,10 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     return {std::vector<octomap::point3d>(), false};
   }
 
-  ROS_INFO_STREAM("[Astar]: Planning from: " << planning_start.x() << ", " << planning_start.y() << ", " << planning_start.z());
-  ROS_INFO_STREAM("[Astar]: Planning to: " << map_goal.x() << ", " << map_goal.y() << ", " << map_goal.z());
+  RCLCPP_INFO_STREAM(this->get_logger(),"[Astar]: Planning from: " << planning_start.x() << ", " << planning_start.y() << ", " << planning_start.z());
+  RCLCPP_INFO_STREAM(this->get_logger(),"[Astar]: Planning to: " << map_goal.x() << ", " << map_goal.y() << ", " << map_goal.z());
 
-  auto time_start_planning = ros::Time::now();
+  auto time_start_planning = this->now();
 
   Node first;
   first.key        = start;
@@ -162,7 +162,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   Node last_closed;
 
-  while (!open.empty() && ros::ok()) {
+  while (!open.empty() && rclcpp::ok()) {
 
     Node current = open_heap.top();
     open_heap.pop();
@@ -171,13 +171,13 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     last_closed = current;
 
-    auto time_now = ros::Time::now();
+    auto time_now = this->now();
 
     if (time_now.toSec() - time_start.toSec() > timeout_threshold) {
 
-      ROS_WARN("[Astar]: Planning timeout (%.4f s after start of search)! Using current best node as goal.", (ros::Time::now() - time_start_planning).toSec());
+      RCLCPP_WARN(this->get_logger(),"[Astar]: Planning timeout (%.4f s after start of search)! Using current best node as goal.", (this->now() - time_start_planning).toSec());
       auto path_keys = backtrackPathKeys(best_node == first ? best_node_greedy : best_node, first, parent_map);
-      ROS_INFO("[Astar]: Path found. Length: %ld", path_keys.size());
+      RCLCPP_INFO(this->get_logger(),"[Astar]: Path found. Length: %ld", path_keys.size());
 
       bv->clearVisuals();
       bv->clearBuffers();
@@ -195,7 +195,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       auto path_keys = backtrackPathKeys(current, first, parent_map);
       path_keys.push_back(tree.coordToKey(map_goal));
-      ROS_INFO("[Astar]: Path found. Length: %ld. Search time: %.4f", path_keys.size(), (ros::Time::now() - time_start_planning).toSec());
+      RCLCPP_INFO(this->get_logger(),"[Astar]: Path found. Length: %ld. Search time: %.4f", path_keys.size(), (this->now() - time_start_planning).toSec());
 
       bv->clearVisuals();
       bv->clearBuffers();
@@ -210,12 +210,12 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     // expand
     auto neighbors = getNeighborhood(current.key, tree);
 
-    /* ROS_INFO_STREAM("poped " << current.key.k); */
-    /* ROS_INFO("[%s]: iter %d, open %d, closed %d, neighbours %d", ros::this_node::getName().c_str(), iter++, open.size(), closed.size(), neighbors.size()); */
+    /* RCLCPP_INFO_STREAM(this->get_logger(),"poped " << current.key.k); */
+    /* RCLCPP_INFO(this->get_logger(),"[%s]: iter %d, open %d, closed %d, neighbours %d", ros::this_node::getName().c_str(), iter++, open.size(), closed.size(), neighbors.size()); */
 
     for (auto &nkey : neighbors) {
 
-      /* ROS_INFO_STREAM("key" << nkey.k); */
+      /* RCLCPP_INFO_STREAM(this->get_logger(),"key" << nkey.k); */
 
       auto ncoord = tree.keyToCoord(nkey);
       Node n;
@@ -257,7 +257,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     auto path_keys = backtrackPathKeys(best_node, first, parent_map);
 
-    ROS_INFO("[Astar]: direct path does not exist, going to the 'best_node', search time: %.4f", (ros::Time::now() - time_start_planning).toSec());
+    RCLCPP_INFO(this->get_logger(),"[Astar]: direct path does not exist, going to the 'best_node', search time: %.4f", (this->now() - time_start_planning).toSec());
 
     return std::make_pair(prepareOutputPath(path_keys, tree), false);
   }
@@ -266,12 +266,12 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
     auto path_keys = backtrackPathKeys(best_node_greedy, first, parent_map);
 
-    ROS_INFO("[Astar]: direct path does not exist, going to the best_node_greedy', search time: %.4f", (ros::Time::now() - time_start_planning).toSec());
+    RCLCPP_INFO(this->get_logger(),"[Astar]: direct path does not exist, going to the best_node_greedy', search time: %.4f", (this->now() - time_start_planning).toSec());
 
     return std::make_pair(prepareOutputPath(path_keys, tree), false);
   }
 
-  ROS_WARN("[Astar]: PATH DOES NOT EXIST! Search time: %.4f", (ros::Time::now() - time_start_planning).toSec());
+  RCLCPP_WARN(this->get_logger(),"[Astar]: PATH DOES NOT EXIST! Search time: %.4f", (this->now() - time_start_planning).toSec());
 
   return {std::vector<octomap::point3d>(), false};
 }
@@ -430,7 +430,7 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 
   /* resample the incoming map to the desired resolution //{ */
 
-  auto time_start = ros::Time::now();
+  auto time_start = this->now();
 
   std::shared_ptr<octomap::OcTree> resampled_tree = std::make_shared<octomap::OcTree>(resolution);
   resampled_tree->setOccupancyThres(tree->getOccupancyThres());
@@ -465,8 +465,8 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 
   resampled_tree->expand();
 
-  ROS_INFO("[%s]: planning tree resampling took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
-  time_start = ros::Time::now();
+  RCLCPP_INFO(this->get_logger(),"[%s]: planning tree resampling took %.4f", rclcpp::this_node::getName().c_str(), (this->now() - time_start).toSec());
+  time_start = this->now();
 
   /* ROS_ERROR("[%s]: Resampled tree size after expand = %lu, free = %d, occupied = %d.", ros::this_node::getName().c_str(), resampled_tree->size(),
    * counter_free, counter_occ); */
@@ -474,11 +474,11 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   /* ROS_ERROR("[%s]: Orig coord = [%.2f, %.2f, %.2f].", ros::this_node::getName().c_str(), orig_coord.x(), orig_coord.y(), orig_coord.z()); */
   auto edf = euclideanDistanceTransform(resampled_tree, orig_coord);
 
-  ROS_INFO("[%s]: edf over planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
-  time_start = ros::Time::now();
+  RCLCPP_INFO(this->get_logger(),"[%s]: edf over planning tree took %.4f", rclcpp::this_node::getName().c_str(), (this->now() - time_start).toSec());
+  time_start = this->now();
 
-  ROS_INFO("[%s]: edf over planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
-  time_start = ros::Time::now();
+  RCLCPP_INFO(this->get_logger(),"[%s]: edf over planning tree took %.4f", rclcpp::this_node::getName().c_str(), (this->now() - time_start).toSec());
+  time_start = this->now();
 
   //}
 
@@ -492,8 +492,8 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
     }
   }
 
-  ROS_INFO("[%s]: setting node values in planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
-  time_start = ros::Time::now();
+  RCLCPP_INFO(this->get_logger(),"[%s]: setting node values in planning tree took %.4f", rclcpp::this_node::getName().c_str(), (this->now() - time_start).toSec());
+  time_start = this->now();
   /* ROS_ERROR("[%s]: Number of set node values based on edf = %d, free = %d, occupied = %d", ros::this_node::getName().c_str(), counter, counter_free,
    * counter_occ); */
 
@@ -504,13 +504,13 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 
   if (binary_tree_query != NULL && binary_tree_query->getValue() != TreeValue::FREE) {
 
-    ROS_WARN("[%s]: start is inside of an inflated obstacle, tunneling out", ros::this_node::getName().c_str());
+    RCLCPP_WARN(this->get_logger(),"[%s]: start is inside of an inflated obstacle, tunneling out", rclcpp::this_node::getName().c_str());
 
     // tunnel out of expanded walls
 
     int iter1 = 0;
 
-    while (ros::ok() && binary_tree_query != NULL && iter1++ <= 100) {
+    while (rclcpp::ok() && binary_tree_query != NULL && iter1++ <= 100) {
 
       if (iter1++ > 100) {
         return {};
@@ -526,11 +526,11 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
       octomap::point3d dir_away_from_obstacle = current_coords - closest_obstacle;
 
       if (obstacle_dist >= float(safe_obstacle_distance)) {
-        ROS_INFO("[%s]: tunnel create with %d, final obstacle dist = %.4f", ros::this_node::getName().c_str(), int(tunnel.size()), obstacle_dist);
+        RCLCPP_INFO(this->get_logger(),"[%s]: tunnel create with %d, final obstacle dist = %.4f", rclcpp::this_node::getName().c_str(), int(tunnel.size()), obstacle_dist);
         break;
       }
 
-      ROS_INFO("[%s]: binary tree resolution = %.2f", ros::this_node::getName().c_str(), float(binary_tree->getResolution()));
+      RCLCPP_INFO(this->get_logger(),"[%s]: binary tree resolution = %.2f", rclcpp::this_node::getName().c_str(), float(binary_tree->getResolution()));
       current_coords += dir_away_from_obstacle.normalized() * float(binary_tree->getResolution());
 
       int iter2 = 0;
@@ -549,8 +549,8 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
     }
   }
 
-  ROS_INFO("[%s]: tunneling in planning tree took %.4f", ros::this_node::getName().c_str(), (ros::Time::now() - time_start).toSec());
-  time_start = ros::Time::now();
+  RCLCPP_INFO(this->get_logger(),"[%s]: tunneling in planning tree took %.4f", rclcpp::this_node::getName().c_str(), (this->now() - time_start).toSec());
+  time_start = this->now();
 
   std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>> result = {binary_tree, tunnel};
 
@@ -590,7 +590,7 @@ octomap::point3d AstarPlanner::nearestFreeCoord(const octomap::point3d &p, const
 std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<octomap::point3d> &waypoints, octomap::OcTree &tree) {
 
   if (waypoints.size() < 2) {
-    ROS_WARN("[Astar]: Not enough points for postprocessing!");
+    RCLCPP_WARN(this->get_logger(),"[Astar]: Not enough points for postprocessing!");
     return waypoints;
   }
 
@@ -610,7 +610,7 @@ std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<oc
   //}
 
   if (padded.size() < 3) {
-    ROS_WARN("[Astar]: Not enough points for postprocessing!");
+    RCLCPP_WARN(this->get_logger(),"[Astar]: Not enough points for postprocessing!");
     return padded;
   }
 
