@@ -4,7 +4,7 @@
 ## --------------------------------------------------------------
 
 cmake_minimum_required(VERSION 3.5)
-project(mrs_octomap_server)
+project(mrs_octomap_planner)
 
 # set the correct standards
 set(CMAKE_C_STANDARD 99)
@@ -50,18 +50,21 @@ set(DEPENDENCIES
   std_srvs
   octomap_msgs
   octomap_ros
-  mrs_octomap_tools
   geometry_msgs
   nav_msgs
   mrs_subt_planning_lib
-  dynamic_edt_3d
+  dynamicEDT3D
 )
+
+# set(LIBRARIES
+#   MrsOctomapPlanner_OctomapPlanner
+#   MrsOctomapPlanner_MinimalOctomapPlanner
+#   )
+
 
 set(LIBRARIES
   MrsOctomapPlanner_OctomapPlanner
-  MrsOctomapPlanner_MinimalOctomapPlanner
   )
-
 
 foreach(DEP IN LISTS DEPENDENCIES)
   find_package(${DEP} REQUIRED)
@@ -83,21 +86,21 @@ include_directories(
 ## |                           Compile                          |
 ## --------------------------------------------------------------
 
-add_library(MrsOctomapPlanner SHARED
+add_library(MrsOctomapPlanner_OctomapPlanner SHARED
   src/octomap_planner.cpp
   src/minimal_octomap_planner.cpp
   src/astar_planner.cpp
 )
 
-ament_target_dependencies(MrsOctomapPlanner
+ament_target_dependencies(MrsOctomapPlanner_OctomapPlanner
   ${DEPENDENCIES}
 )
 
 
 ## components
-rclcpp_components_register_nodes(MrsOctomapPlanner PLUGIN "mrs_octomap_planner::OctomapPlanner" EXECUTABLE MrsOctomapPlanner)
+rclcpp_components_register_nodes(MrsOctomapPlanner_OctomapPlanner PLUGIN "mrs_octomap_planner::OctomapPlanner" EXECUTABLE MrsOctomapPlanner_OctomapPlanner)
 
-target_compile_definitions(MrsOctomapPlanner PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
+target_compile_definitions(MrsOctomapPlanner_OctomapPlanner PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
 
 ## --------------------------------------------------------------
 ## |                           install                          |

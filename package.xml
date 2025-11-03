@@ -25,7 +25,6 @@
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>mrs_subt_planning_lib</depend>
-  <depend>dynamic_edt_3d</depend>
 
 
   <exec_depend>liboctomap</exec_depend>

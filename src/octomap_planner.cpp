@@ -1,10 +1,8 @@
 /* includes //{ */
 
 #include <memory>
-#include <rclcpp/rclcpp.h>
 
 #include <octomap/OcTree.h>
-#include <mrs_octomap_tools/octomap_methods.h>
 
 #include <octomap_msgs/msg/octomap.h>
 #include <octomap_msgs/conversions.h>

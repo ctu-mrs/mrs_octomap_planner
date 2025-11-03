@@ -3,11 +3,9 @@
 #include <mrs_lib/param_loader.h>
 #include <mrs_lib/subscriber_handler.h>
 #include <mrs_lib/transformer.h>
-#include <mrs_octomap_planner/Path.h>
-#include <mrs_octomap_tools/octomap_methods.h>
 #include <octomap/OcTree.h>
-#include <octomap_msgs/msg/Octomap.h>
-#include <rclcpp/rclcpp.h>
+#include <octomap_msgs/msg/octomap.hpp>
+#include <mrs_modules_msgs/srv/path.hpp>
 #include <astar_planner.hpp>
 #include <iostream>
 #include <memory>
@@ -55,7 +53,7 @@ namespace mrs_octomap_planner
                         const rclcpp::Time&   last_msg);
     void callbackOctomap(const octomap_msgs::msg::Octomap::ConstSharedPtr msg);
 
-    rclcpp::Service<mrs_octomap_planner::srv::Path>::SharedPtr service_server_get_path_;
+    rclcpp::Service<mrs_msgs::srv::PathSrv>::SharedPtr service_server_get_path_;
     
     void callbackGetPath(const std::shared_ptr<mrs_octomap_planner::srv::Path::Request> req,
                          std::shared_ptr<mrs_octomap_planner::srv::Path::Response> res);
@@ -114,7 +112,7 @@ namespace mrs_octomap_planner
                                                                    "~/octomap_in",
                                                                    callback_octomap);
 
-    service_server_get_path_ = this->create_service<mrs_octomap_planner::srv::Path>(
+    service_server_get_path_ = this->create_service<mrs_modules_msgs::srv::Path>(
             "get_path_in",
             std::bind(&MinimalOctomapPlanner::callbackGetPath, this,
                       std::placeholders::_1, std::placeholders::_2));
