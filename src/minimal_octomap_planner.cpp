@@ -5,6 +5,7 @@
 #include <mrs_lib/transformer.h>
 #include <octomap/OcTree.h>
 #include <octomap_msgs/msg/octomap.hpp>
+#include <octomap_msgs/conversions.h>
 #include <mrs_modules_msgs/srv/path.hpp>
 #include <astar_planner.hpp>
 #include <iostream>
@@ -53,14 +54,14 @@ namespace mrs_octomap_planner
                         const rclcpp::Time&   last_msg);
     void callbackOctomap(const octomap_msgs::msg::Octomap::ConstSharedPtr msg);
 
-    rclcpp::Service<mrs_msgs::srv::PathSrv>::SharedPtr service_server_get_path_;
+    rclcpp::Service<mrs_modules_msgs::srv::Path>::SharedPtr service_server_get_path_;
     
-    void callbackGetPath(const std::shared_ptr<mrs_octomap_planner::srv::Path::Request> req,
-                         std::shared_ptr<mrs_octomap_planner::srv::Path::Response> res);
+    void callbackGetPath(const std::shared_ptr<mrs_modules_msgs::srv::Path::Request> req,
+                         std::shared_ptr<mrs_modules_msgs::srv::Path::Response> res);
 
     std::unique_ptr<mrs_lib::Transformer> transformer_;
 
-    std::optional<OcTreeSharedPtr_t> msgToMap(const octomap_msgs::msg::OctomapConstPtr octomap);
+    std::optional<OcTreeSharedPtr_t> msgToMap(const octomap_msgs::msg::Octomap::ConstPtr octomap);
 
     rclcpp ::TimerBase::SharedPtr timer_init_;
   };
@@ -102,7 +103,7 @@ namespace mrs_octomap_planner
     };
 
     mrs_lib::SubscriberHandlerOptions shopts;
-    shopts.nh                 = node_;
+    shopts.node                 = node_;
     shopts.node_name          = "MrsMinimalOctomapPlanner";
     shopts.no_message_timeout = mrs_lib::no_timeout;
     shopts.threadsafe         = true;
@@ -149,16 +150,17 @@ namespace mrs_octomap_planner
       mrs_lib::set_mutexed(mutex_octree_,msg->header.frame_id, octree_frame_);
   }
 
-  std::optional<OcTreeSharedPtr_t> MinimalOctomapPlanner::msgToMap(const octomap_msgs::msg::OctomapConstPtr octomap)
+  std::optional<OcTreeSharedPtr_t> MinimalOctomapPlanner::msgToMap(const octomap_msgs::msg::Octomap::ConstPtr octomap)
   {
     octomap::AbstractOcTree* abstract_tree;
 
     if (octomap->binary) {
-      abstract_tree = octomap_msgs::msg::binaryMsgToMap(*octomap);
+      abstract_tree = octomap_msgs::binaryMsgToMap(*octomap);
+
     }
     else {
-      abstract_tree = octomap_msgs::msg::fullMsgToMap(*octomap);
-    }
+      abstract_tree = octomap_msgs::fullMsgToMap(*octomap);
+      }
 
     if (!abstract_tree) {
       RCLCPP_WARN(this->get_logger(),"[MrsMinimalOctomapPlanner]: Octomap message is empty! can not convert to OcTree");
@@ -183,7 +185,7 @@ namespace mrs_octomap_planner
     RCLCPP_WARN_THROTTLE(this->get_logger(),*this->get_clock(),1000,"[MrsMinimalOctomapPlanner]: octomap timeout!");
   }
 
-  void MinimalOctomapPlanner::callbackGetPath(const std::shared_ptr<mrs_octomap_planner::srv::Path::Request> req, std::shared_ptr<mrs_octomap_planner::srv::Path::Response> res)
+  void MinimalOctomapPlanner::callbackGetPath(const std::shared_ptr<mrs_modules_msgs::srv::Path::Request> req, std::shared_ptr<mrs_modules_msgs::srv::Path::Response> res)
   {
     if (!is_initialized_) {
       res->success = false;
@@ -191,17 +193,21 @@ namespace mrs_octomap_planner
       return;
     }
 
-    const bool got_octomap = sh_octomap_.hasMsg() && (clock_->now() - sh_octomap_.lastMsgTime()).toSec() < 2.0;
+    const bool got_octomap = sh_octomap_.hasMsg() && (clock_->now() - sh_octomap_.lastMsgTime()).seconds() < 2.0;
 
     if (!got_octomap) {
       RCLCPP_INFO_THROTTLE(this->get_logger(),*this->get_clock(),1000,
                         "[MrsMinimalOctomapPlanner]: waiting for data: octomap = %s",
                         got_octomap ? "TRUE" : "FALSE");
-      return false;
+      res->success = false;
+      return;
     }
 
     bv_planner_->setParentFrame(mrs_lib::get_mutexed(mutex_octree_, octree_frame_));
-    mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(_safe_obstacle_distance_,
+    mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner( 
+                                                                                  this->shared_from_this(),
+                                                                                  "MrsMinimalOctomapPlanner",
+                                                                                  _safe_obstacle_distance_,
                                                                                   _safe_obstacle_distance_,
                                                                                   _distance_transform_distance_,
                                                                                   _planning_tree_resolution_,
@@ -215,13 +221,13 @@ namespace mrs_octomap_planner
                                                                                   bv_planner_);
 
     octomap::point3d plan_from, plan_to;
-    plan_from.x() = req.start.x;
-    plan_from.y() = req.start.y;
-    plan_from.z() = req.start.z;
+    plan_from.x() = req->start.x;
+    plan_from.y() = req->start.y;
+    plan_from.z() = req->start.z;
 
-    plan_to.x() = req.end.x;
-    plan_to.y() = req.end.y;
-    plan_to.z() = req.end.z;
+    plan_to.x() = req->end.x;
+    plan_to.y() = req->end.y;
+    plan_to.z() = req->end.z;
 
     OcTreeSharedPtr_t octree = mrs_lib::get_mutexed(mutex_octree_, octree_);
 
@@ -234,23 +240,23 @@ namespace mrs_octomap_planner
       std::stringstream ss;
       ss << "Found complete path of length = " << path.first.size();
       RCLCPP_INFO_STREAM(this->get_logger(),"[MrsMinimalOctomapPlanner]: " << ss.str());
-      res.message = ss.str();
+      res->message = ss.str();
     }
     else {
       // no path at all
       if (path.first.size() < 2) {
         RCLCPP_WARN(this->get_logger(),"[MrsMinimalOctomapPlanner]: No path found");
-        res.success = false;
-        res.message = "No path found";
-        res.path    = std::vector<geometry_msgs::msg::Point>();
-        return true;
+        res->success = false;
+        res->message = "No path found";
+        res->path    = std::vector<geometry_msgs::msg::Point>();
+        return;
       }
       
       // path not until the end but to a closer point
       std::stringstream ss;
       ss << "Incomplete path found of length = " << path.first.size();
       RCLCPP_INFO_STREAM(this->get_logger(),"[MrsMinimalOctomapPlanner]: " << ss.str());
-      res.message = ss.str();
+      res->message = ss.str();
 
       double front_x = path.first.front().x();
       double front_y = path.first.front().y();
@@ -267,13 +273,13 @@ namespace mrs_octomap_planner
         std::stringstream ss;
         ss << "Path too short, length: " << dist_path_start_to_end;
         RCLCPP_WARN_STREAM(this->get_logger(),"[MrsMinimalOctomapPlanner]: " << ss.str());
-        res.message = ss.str();
+        res->message = ss.str();
       }
     }
 
     std::vector<geometry_msgs::msg::Point> tf_path;
     auto                              from_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
-    auto                              to_frame   = req.header.frame_id;
+    auto                              to_frame   = req->header.frame_id;
     auto                              ret        = transformer_->getTransform(from_frame, to_frame, clock_->now());
 
     if (!ret) {

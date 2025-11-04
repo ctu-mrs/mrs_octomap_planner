@@ -23,31 +23,31 @@
 #include <mrs_lib/transformer.h>
 #include <mrs_lib/geometry/misc.h>
 #include <mrs_lib/geometry/cyclic.h>
+#include <mrs_lib/publisher_handler.h>
 
-#include <mrs_msgs/srv/vec4.h>
-#include <mrs_msgs/srv/vec1.h>
-#include <mrs_msgs/srv/reference_stamped_srv.h>
-#include <mrs_msgs/srv/validate_reference_array.h>
-#include <mrs_msgs/srv/get_path_srv.h>
-#include <mrs_msgs/srv/string.h>
-#include <mrs_msgs/srv/trajectory_reference_srv.h>
+#include <mrs_msgs/srv/vec4.hpp>
+#include <mrs_msgs/srv/vec1.hpp>
+#include <mrs_msgs/srv/reference_stamped_srv.hpp>
+#include <mrs_msgs/srv/validate_reference_array.hpp>
+#include <mrs_msgs/srv/get_path_srv.hpp>
+#include <mrs_msgs/srv/string.hpp>
+#include <mrs_msgs/srv/trajectory_reference_srv.hpp>
 
+#include <mrs_msgs/msg/tracker_command.hpp>
+#include <mrs_msgs/msg/mpc_prediction_full_state.hpp>
+#include <mrs_msgs/msg/control_manager_diagnostics.hpp>
+#include <mrs_msgs/msg/dynamics_constraints.hpp>
+#include <mrs_msgs/msg/trajectory_reference.hpp>
 
-#include <mrs_msgs/msg/tracker_command.h>
-#include <mrs_msgs/msg/mpc_prediction_full_state.h>
-#include <mrs_msgs/msg/control_manager_diagnostics.h>
-#include <mrs_msgs/msg/dynamics_constraints.h>
-#include <mrs_msgs/msg/trajectory_reference.h>
+#include <mrs_modules_msgs/msg/octomap_planner_diagnostics.hpp>
 
-#include <mrs_modules_msgs/msg/octomap_planner_diagnostics.h>
-
-#include <std_srvs/srv/trigger.h>
+#include <std_srvs/srv/trigger.hpp>
 
 #include <astar_planner.hpp>
 #include <mrs_subt_planning_lib/astar_planner.h>
 
-#include <visualization_msgs/msg/marker.h>
-#include <visualization_msgs/msg/marker_array.h>
+#include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 //}
 
@@ -82,7 +82,7 @@ const std::string _state_names_[] = {"IDLE", "PLANNING", "MOVING"};
 
 using OcTree_t            = octomap::OcTree;
 using OcTreePtr_t         = std::shared_ptr<octomap::OcTree>;
-using OcTreeMsgConstPtr_t = octomap_msgs::msg::OctomapConstPtr;
+using OcTreeMsgConstPtr_t = octomap_msgs::msg::Octomap::ConstPtr;
 
 //}
 
@@ -205,7 +205,6 @@ private:
   std::mutex               mutex_bv_processed_;
 
   // subscribers
-
   mrs_lib::SubscriberHandler<mrs_msgs::msg::TrackerCommand>            sh_tracker_cmd_;
   mrs_lib::SubscriberHandler<octomap_msgs::msg::Octomap>               sh_octomap_;
   mrs_lib::SubscriberHandler<mrs_msgs::msg::ControlManagerDiagnostics> sh_control_manager_diag_;
@@ -214,7 +213,7 @@ private:
   // publishers
 
   mrs_lib::PublisherHandler<mrs_modules_msgs::msg::OctomapPlannerDiagnostics> pub_diagnostics_;
-  mrs_lib::PublisherHandler<vizualization_msgs::msg::MarkerArray> pub_virtual_obstacles_;
+  mrs_lib::PublisherHandler<visualization_msgs::msg::MarkerArray> pub_virtual_obstacles_;
 
   // subscriber callbacks
   void callbackTrackerCmd(const mrs_msgs::msg::TrackerCommand::ConstSharedPtr msg);
@@ -231,15 +230,14 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                  service_server_remove_virtual_obstacles_;
   
   // service server callbacks
-
-  bool callbackGoto(mrs_msgs::srv::Vec4::ConstSharedPtr req, mrs_msgs::srv::Vec4::ConstSharedPtr res);
-  bool callbackStop(std_srvs::srv::Trigger::ConstSharedPtr req, std_srvs::srv::Trigger::ConstSharedPtr res);
-  bool callbackReference(mrs_msgs::srv::ReferenceStampedSrv::ConstSharedPtr req, mrs_msgs::srv::ReferenceStampedSrv::ConstSharedPtr res);
-  bool callbackSetPlanner(mrs_msgs::srv::String::ConstSharedPtr req, mrs_msgs::srv::String::ConstSharedPtr res);
-  bool callbackSetSafetyDistance(mrs_msgs::srv::Vec1::ConstSharedPtr req, mrs_msgs::srv::Vec1::ConstSharedPtr res);
-  bool callbackSetMaxAltitude(mrs_msgs::srv::Vec1::ConstSharedPtr req, mrs_msgs::srv::Vec1::ConstSharedPtr res);
-  bool callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReferenceArray::ConstSharedPtr req, mrs_msgs::srv::ValidateReferenceArray::ConstSharedPtr res);
-  bool callbackRemoveVirtualObstacles(std_srvs::srv::Trigger::ConstSharedPtr req, std_srvs::srv::Trigger::ConstSharedPtr res);
+  void callbackGoto(const std::shared_ptr<mrs_msgs::srv::Vec4::Request> req,std::shared_ptr<mrs_msgs::srv::Vec4::Response> res);
+  void callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::Request> req, std::shared_ptr<std_srvs::srv::Trigger::Response> res);
+  void callbackReference(const std::shared_ptr<mrs_msgs::srv::ReferenceStampedSrv::Request> req, std::shared_ptr<mrs_msgs::srv::ReferenceStampedSrv::Response> res);
+  void callbackSetPlanner(const std::shared_ptr<mrs_msgs::srv::String::Request> req, std::shared_ptr<mrs_msgs::srv::String::Response> res);
+  void callbackSetSafetyDistance(const std::shared_ptr<mrs_msgs::srv::Vec1::Request> req, std::shared_ptr<mrs_msgs::srv::Vec1::Response> res);
+  void callbackSetMaxAltitude(const std::shared_ptr<mrs_msgs::srv::Vec1::Request> req, std::shared_ptr<mrs_msgs::srv::Vec1::Response> res);
+  void callbackAddVirtualObstacle(const std::shared_ptr<mrs_msgs::srv::ValidateReferenceArray::Request> req, std::shared_ptr<mrs_msgs::srv::ValidateReferenceArray::Response> res);
+  void callbackRemoveVirtualObstacles(const std::shared_ptr<std_srvs::srv::Trigger::Request> req, std::shared_ptr<std_srvs::srv::Trigger::Response> res);
 
   // service clients
   mrs_lib::ServiceClientHandler<mrs_msgs::srv::GetPathSrv>             sc_get_trajectory_;
@@ -263,7 +261,7 @@ private:
   std::mutex                                  mutex_diagnostics_;
 
   // timeouts
-  void timeoutOctomap(const std::string& topic, const rclcpp::Time& last_msg)
+  void timeoutOctomap(const std::string& topic, const rclcpp::Time& last_msg);
   void timeoutTrackerCmd(const std::string& topic, const rclcpp::Time& last_msg);
   void timeoutControlManagerDiag(const std::string& topic, const rclcpp::Time& last_msg);
 
@@ -305,7 +303,7 @@ private:
 
   std::vector<double> estimateSegmentTimes(const std::vector<Eigen::Vector4d>& vertices, const bool use_heading);
 
-  std::optional<OcTreePtr_t> msgToMap(const octomap_msgs::msg::OctomapConstPtr octomap);
+  std::optional<OcTreePtr_t> msgToMap(const octomap_msgs::msg::Octomap::ConstPtr octomap);
 
   /**
    * @brief returns planning initial condition for a given future time based on the MPC prediction horizon
@@ -708,8 +706,7 @@ void OctomapPlanner::timeoutControlManagerDiag(const std::string& topic, const r
 //}
 
 /* callbackStop() //{ */
-
-bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::srv::Trigger::ConstSharedPtr req, std_srvs::srv::Trigger::ConstSharedPtr res) {
+void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::Request> req,std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
 
   if (!is_initialized_) {
     return false;
@@ -740,8 +737,7 @@ bool OctomapPlanner::callbackStop([[maybe_unused]] std_srvs::srv::Trigger::Const
 //}
 
 /* callbackGoto() //{ */
-
-bool OctomapPlanner::callbackGoto(mrs_msgs::srv::Vec4::ConstSharedPtr req, mrs_msgs::srv::Vec4::ConstSharedPtr res) {
+  void OctomapPlanner::callbackGoto(const std::shared_ptr<mrs_msgs::srv::Vec4::Request> req,std::shared_ptr<mrs_msgs::srv::Vec4::Response> res) {
 
   /* prerequisities //{ */
 
@@ -816,7 +812,7 @@ bool OctomapPlanner::callbackGoto(mrs_msgs::srv::Vec4::ConstSharedPtr req, mrs_m
 
 /* callbackReference() //{ */
 
-bool OctomapPlanner::callbackReference(mrs_msgs::srv::ReferenceStampedSrv::ConstSharedPtr req, mrs_msgs::srv::ReferenceStampedSrv::ConstSharedPtr res) {
+void OctomapPlanner::callbackReference(const std::shared_ptr<mrs_msgs::srv::ReferenceStampedSrv::Request> req, std::shared_ptr<mrs_msgs::srv::ReferenceStampedSrv::Response> res) {
 
   /* prerequisities //{ */
 
@@ -885,7 +881,7 @@ bool OctomapPlanner::callbackReference(mrs_msgs::srv::ReferenceStampedSrv::Const
 
 /* callbackSetPlanner() //{ */
 
-bool OctomapPlanner::callbackSetPlanner(mrs_msgs::srv::String::ConstSharedPtr req, mrs_msgs::srv::String::ConstSharedPtr res) {
+void OctomapPlanner::callbackSetPlanner(const std::shared_ptr<mrs_msgs::srv::String::Request> req, std::shared_ptr<mrs_msgs::srv::String::Response> res) {
 
   if (!is_initialized_) {
     return false;
@@ -911,7 +907,7 @@ bool OctomapPlanner::callbackSetPlanner(mrs_msgs::srv::String::ConstSharedPtr re
 
 /* callbackSetSafetyDistance() //{ */
 
-bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::srv::Vec1::ConstSharedPtr req, mrs_msgs::srv::Vec1::ConstSharedPtr res) {
+void OctomapPlanner::callbackSetSafetyDistance(const std::shared_ptr<mrs_msgs::srv::Vec1::Request> req, std::shared_ptr<mrs_msgs::srv::Vec1::Response> res) {
 
   if (!is_initialized_) {
     return false;
@@ -947,7 +943,7 @@ bool OctomapPlanner::callbackSetSafetyDistance(mrs_msgs::srv::Vec1::ConstSharedP
 
 /* callbackSetMaxAltitude() //{ */
 
-bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::srv::Vec1::ConstSharedPtr req, mrs_msgs::srv::Vec1::ConstSharedPtr res) {
+void OctomapPlanner::callbackSetMaxAltitude(const std::shared_ptr<mrs_msgs::srv::Vec1::Request> req, std::shared_ptr<mrs_msgs::srv::Vec1::Response> res) {
 
   if (!is_initialized_) {
     return false;
@@ -973,7 +969,7 @@ bool OctomapPlanner::callbackSetMaxAltitude(mrs_msgs::srv::Vec1::ConstSharedPtr 
 //
 /* callbackAddVirtualObstacle() //{ */
 
-bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReferenceArray::ConstSharedPtr req, mrs_msgs::srv::ValidateReferenceArray::ConstSharedPtr res) {
+void OctomapPlanner::callbackAddVirtualObstacle(const std::shared_ptr<mrs_msgs::srv::ValidateReferenceArray::Request> req, std::shared_ptr<mrs_msgs::srv::ValidateReferenceArray::Response> res) {
 
   if (!is_initialized_) {
     res.success = {false};
@@ -1117,7 +1113,7 @@ bool OctomapPlanner::callbackAddVirtualObstacle(mrs_msgs::srv::ValidateReference
 
 /* callbackRemoveVirtualObstacles() //{ */
 
-bool OctomapPlanner::callbackRemoveVirtualObstacles(std_srvs::srv::Trigger::ConstSharedPtr req, std_srvs::srv::Trigger::ConstSharedPtr res) {
+void OctomapPlanner::callbackRemoveVirtualObstacles(const std::shared_ptr<std_srvs::srv::Trigger::Request> req, std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
 
   if (!is_initialized_) {
     return false;
@@ -1183,8 +1179,8 @@ void OctomapPlanner::timerMain() {
     new_user_goal_received_          = false;
   }
 
-  const mrs_msgs::msg::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
-  const mrs_msgs::msg::TrackerCommandConstPtr            tracker_cmd          = sh_tracker_cmd_.getMsg();
+  const mrs_msgs::msg::ControlManagerDiagnostics::ConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
+  const mrs_msgs::msg::TrackerCommand::ConstPtr            tracker_cmd          = sh_tracker_cmd_.getMsg();
 
   std::shared_ptr<OcTree_t> octree;
 
@@ -2412,7 +2408,7 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
 
 /* msgToMap() //{ */
 
-std::optional<OcTreePtr_t> OctomapPlanner::msgToMap(const octomap_msgs::msg::OctomapConstPtr octomap) {
+std::optional<OcTreePtr_t> OctomapPlanner::msgToMap(const octomap_msgs::msg::Octomap::ConstPtr octomap) {
 
   octomap::AbstractOcTree* abstract_tree;
 
