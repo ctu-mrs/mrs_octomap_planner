@@ -54,13 +54,15 @@ set(DEPENDENCIES
   nav_msgs
   mrs_subt_planning_lib
   dynamicEDT3D
+  PCL
+  pcl_conversions
+  pcl_ros
 )
 
 # set(LIBRARIES
 #   MrsOctomapPlanner_OctomapPlanner
 #   MrsOctomapPlanner_MinimalOctomapPlanner
 #   )
-
 
 set(LIBRARIES
   MrsOctomapPlanner_OctomapPlanner
@@ -77,6 +79,8 @@ include_directories(
   ${mrs_lib_INCLUDE_DIRS}
   ${mrs_modules_msgs_INCLUDE_DIRS}
   ${mrs_msgs_INCLUDE_DIRS}
+  # ${mrs_subt_planning_lib_INCLUDE_DIRS}
+  ~/ws_mapping/install/mrs_subt_planning_lib/include            ##need to be modified
   )
 
 
@@ -90,6 +94,10 @@ add_library(MrsOctomapPlanner_OctomapPlanner SHARED
   src/octomap_planner.cpp
   src/minimal_octomap_planner.cpp
   src/astar_planner.cpp
+)
+
+target_link_libraries(MrsOctomapPlanner_OctomapPlanner
+  mrs_subt_planning_lib
 )
 
 ament_target_dependencies(MrsOctomapPlanner_OctomapPlanner

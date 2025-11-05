@@ -82,7 +82,7 @@ const std::string _state_names_[] = {"IDLE", "PLANNING", "MOVING"};
 
 using OcTree_t            = octomap::OcTree;
 using OcTreePtr_t         = std::shared_ptr<octomap::OcTree>;
-using OcTreeMsgConstPtr_t = octomap_msgs::msg::Octomap::ConstPtr;
+using OcTreeMsgConstPtr_t = octomap_msgs::msg::Octomap::ConstSharedPtr;
 
 //}
 
@@ -195,7 +195,7 @@ private:
   std::mutex        mutex_initial_condition_;
   std::atomic<bool> got_initial_pos_;
 
-  mrs_lib::BatchVisualizer bv_input_;
+  mrs_lib::BatchVisualizer bv_input_; 
   std::mutex               mutex_bv_input_;
 
   std::shared_ptr<mrs_lib::BatchVisualizer> bv_planner_;
@@ -469,12 +469,11 @@ void OctomapPlanner::onInit() {
   // | ----------------------- subscribers ---------------------- |
 
   mrs_lib::SubscriberHandlerOptions shopts;
-  shopts.nh                 = node_;
-  shopts.node_name          = "Pathfinder";
-  shopts.no_message_timeout = mrs_lib::no_timeout;
-  shopts.threadsafe         = true;
-  shopts.autostart          = true;
-  shopts.queue_size         = 1;
+  shopts.node                 = node_;
+  shopts.node_name            = "Pathfinder";
+  shopts.no_message_timeout   = mrs_lib::no_timeout;
+  shopts.threadsafe           = true;
+  shopts.autostart            = true;
 
 
 
@@ -709,7 +708,7 @@ void OctomapPlanner::timeoutControlManagerDiag(const std::string& topic, const r
 void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::Request> req,std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
 
   if (!is_initialized_) {
-    return false;
+    return;
   }
 
   if (!ready_to_plan_) {
@@ -718,9 +717,9 @@ void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::
 
     RCLCPP_ERROR_STREAM_THROTTLE(this->get_logger(), *this->get_clock(), 500, "[MrsOctomapPlanner]: " << ss.str());
 
-    res.success = false;
-    res.message = ss.str();
-    return true;
+    res->success = false;
+    res->message = ss.str();
+    return;
   }
   changeState(STATE_IDLE);
   hover();
@@ -729,9 +728,9 @@ void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::
   ss << "Stopping by request";
 
   RCLCPP_ERROR_STREAM_THROTTLE(this->get_logger(), *this->get_clock(), 500, "[MrsOctomapPlanner]: " << ss.str());
-  res.success = true;
-  res.message = ss.str();
-  return true;
+  res->success = true;
+  res->message = ss.str();
+  return;
 }
 
 //}
@@ -742,7 +741,7 @@ void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::
   /* prerequisities //{ */
 
   if (!is_initialized_) {
-    return false;
+    return;
   }
 
   if (!ready_to_plan_) {
@@ -751,9 +750,9 @@ void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::
 
     RCLCPP_ERROR_STREAM_THROTTLE(this->get_logger(), *this->get_clock(), 500, "[MrsOctomapPlanner]: " << ss.str());
 
-    res.success = false;
-    res.message = ss.str();
-    return true;
+    res->success = false;
+    res->message = ss.str();
+    return;
   }
 
   //}
@@ -761,15 +760,15 @@ void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::
   // | -------- transform the reference to the map frame -------- |
 
   {
-    mrs_msgs::msg::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
+    mrs_msgs::msg::TrackerCommand::ConstSharedPtr tracker_cmd = sh_tracker_cmd_.getMsg();
 
     mrs_msgs::msg::ReferenceStamped reference;
     reference.header.frame_id = tracker_cmd->header.frame_id;
 
-    reference.reference.position.x = req.goal[0];
-    reference.reference.position.y = req.goal[1];
-    reference.reference.position.z = req.goal[2];
-    reference.reference.heading    = req.goal[3];
+    reference.reference.position.x = req->goal[0];
+    reference.reference.position.y = req->goal[1];
+    reference.reference.position.z = req->goal[2];
+    reference.reference.heading    = req->goal[3];
 
     auto result = transformer_->transformSingle(reference, octree_frame_);
 
@@ -786,9 +785,9 @@ void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::
 
       RCLCPP_ERROR_STREAM(this->get_logger(),"[MrsOctomapPlanner]: " << ss.str());
 
-      res.success = false;
-      res.message = ss.str();
-      return true;
+      res->success = false;
+      res->message = ss.str();
+      return;
     }
   }
 
@@ -803,9 +802,9 @@ void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::
     bv_input_.publish();
   }
 
-  res.success = true;
-  res.message = "goal set";
-  return true;
+  res->success = true;
+  res->message = "goal set";
+  return;
 }
 
 //}
@@ -817,7 +816,7 @@ void OctomapPlanner::callbackReference(const std::shared_ptr<mrs_msgs::srv::Refe
   /* prerequisities //{ */
 
   if (!is_initialized_) {
-    return false;
+    return;
   }
 
   if (!ready_to_plan_) {
@@ -826,9 +825,9 @@ void OctomapPlanner::callbackReference(const std::shared_ptr<mrs_msgs::srv::Refe
 
     RCLCPP_ERROR_STREAM_THROTTLE(this->get_logger(), *this->get_clock(), 500, "[MrsOctomapPlanner]: " << ss.str());
 
-    res.success = false;
-    res.message = ss.str();
-    return true;
+    res->success = false;
+    res->message = ss.str();
+    return;
   }
 
   //}
@@ -837,8 +836,8 @@ void OctomapPlanner::callbackReference(const std::shared_ptr<mrs_msgs::srv::Refe
   {
 
     mrs_msgs::msg::ReferenceStamped ref_stamped;
-    ref_stamped.header    = req.header;
-    ref_stamped.reference = req.reference;
+    ref_stamped.header    = req->header;
+    ref_stamped.reference = req->reference;
 
     auto result = transformer_->transformSingle(ref_stamped, octree_frame_);
 
@@ -855,9 +854,9 @@ void OctomapPlanner::callbackReference(const std::shared_ptr<mrs_msgs::srv::Refe
 
       RCLCPP_ERROR_STREAM(this->get_logger(),"[MrsOctomapPlanner]: " << ss.str());
 
-      res.success = false;
-      res.message = ss.str();
-      return true;
+      res->success = false;
+      res->message = ss.str();
+      return;
     }
   }
 
@@ -872,9 +871,9 @@ void OctomapPlanner::callbackReference(const std::shared_ptr<mrs_msgs::srv::Refe
     bv_input_.publish();
   }
 
-  res.success = true;
-  res.message = "reference set";
-  return true;
+  res->success = true;
+  res->message = "reference set";
+  return;
 }
 
 //}
@@ -884,23 +883,23 @@ void OctomapPlanner::callbackReference(const std::shared_ptr<mrs_msgs::srv::Refe
 void OctomapPlanner::callbackSetPlanner(const std::shared_ptr<mrs_msgs::srv::String::Request> req, std::shared_ptr<mrs_msgs::srv::String::Response> res) {
 
   if (!is_initialized_) {
-    return false;
+    return;
   }
 
-  RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: Setting planner to %s requested.", req.value.c_str());
-  res.success = true;
+  RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: Setting planner to %s requested.", req->value.c_str());
+  res->success = true;
 
-  if (req.value == "mrs") {
+  if (req->value == "mrs") {
     _use_subt_planner_ = false;
-  } else if (req.value == "subt") {
+  } else if (req->value == "subt") {
     _use_subt_planner_ = true;
   } else {
-    res.success = false;
+    res->success = false;
   }
 
-  res.message = res.success ? "Planner set successfully." : "Invalid type of planner requested.";
-  RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: %s", res.message.c_str());
-  return res.success;
+  res->message = res->success ? "Planner set successfully." : "Invalid type of planner requested.";
+  RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: %s", res->message.c_str());
+  return;
 }
 
 //}
@@ -910,33 +909,33 @@ void OctomapPlanner::callbackSetPlanner(const std::shared_ptr<mrs_msgs::srv::Str
 void OctomapPlanner::callbackSetSafetyDistance(const std::shared_ptr<mrs_msgs::srv::Vec1::Request> req, std::shared_ptr<mrs_msgs::srv::Vec1::Response> res) {
 
   if (!is_initialized_) {
-    return false;
+    return;
   }
 
-  if (req.goal >= _safe_obstacle_distance_min_ && req.goal <= _safe_obstacle_distance_max_) {
+  if (req->goal >= _safe_obstacle_distance_min_ && req->goal <= _safe_obstacle_distance_max_) {
 
     {
       std::scoped_lock lock(mutex_safety_distance_);
 
-      _safe_obstacle_distance_    = req.goal;
+      _safe_obstacle_distance_    = req->goal;
       _euclidean_distance_cutoff_ = _safe_obstacle_distance_ + 0.01;  // needed for correct function of MRS planner
     }
 
     RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: setting safety distance to %.2f m.", _safe_obstacle_distance_);
-    res.success = true;
+    res->success = true;
 
   } else {
 
-    RCLCPP_WARN(this->get_logger(),"[MrsOctomapPlanner]: failed to set safety distance %.2f m (outside the allowed range [%.2f, %.2f])", req.goal, _safe_obstacle_distance_min_,
+    RCLCPP_WARN(this->get_logger(),"[MrsOctomapPlanner]: failed to set safety distance %.2f m (outside the allowed range [%.2f, %.2f])", req->goal, _safe_obstacle_distance_min_,
              _safe_obstacle_distance_max_);
-    res.success = false;
+    res->success = false;
   }
 
-  res.message = res.success ? "safety distance set" : "safety distance not set";
+  res->message = res->success ? "safety distance set" : "safety distance not set";
 
-  RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: %s", res.message.c_str());
+  RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: %s", res->message.c_str());
 
-  return true;
+  return;
 }
 
 //}
@@ -946,23 +945,23 @@ void OctomapPlanner::callbackSetSafetyDistance(const std::shared_ptr<mrs_msgs::s
 void OctomapPlanner::callbackSetMaxAltitude(const std::shared_ptr<mrs_msgs::srv::Vec1::Request> req, std::shared_ptr<mrs_msgs::srv::Vec1::Response> res) {
 
   if (!is_initialized_) {
-    return false;
+    return;
   }
 
   {
     std::scoped_lock lock(mutex_max_altitude_);
 
-    _max_altitude_ = req.goal;
+    _max_altitude_ = req->goal;
   }
 
   RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: setting max altitude to %.2f m.", _max_altitude_);
-  res.success = true;
+  res->success = true;
 
-  res.message = "max altitude set";
+  res->message = "max altitude set";
 
-  RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: %s", res.message.c_str());
+  RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: %s", res->message.c_str());
 
-  return true;
+  return;
 }
 
 //}
@@ -972,25 +971,25 @@ void OctomapPlanner::callbackSetMaxAltitude(const std::shared_ptr<mrs_msgs::srv:
 void OctomapPlanner::callbackAddVirtualObstacle(const std::shared_ptr<mrs_msgs::srv::ValidateReferenceArray::Request> req, std::shared_ptr<mrs_msgs::srv::ValidateReferenceArray::Response> res) {
 
   if (!is_initialized_) {
-    res.success = {false};
-    res.message = "not yet initialized -> cannot insert virtual obstacle";
-    return true;
+    res->success = {false};
+    res->message = "not yet initialized -> cannot insert virtual obstacle";
+    return;
   }
 
-  if (req.array.array.size() != 3) {
-    res.success = {false};
-    res.message = "array does not contain exactly 3 points -> cannot insert virtual obstacle";
-    return true;
+  if (req->array.array.size() != 3) {
+    res->success = {false};
+    res->message = "array does not contain exactly 3 points -> cannot insert virtual obstacle";
+    return;
   }
 
   // Transform points to octree frame
   std::string                      octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
   std::vector<mrs_msgs::msg::Reference> virt_obst_in_octree_frame;
 
-  for (auto& point_ref : req.array.array) {
+  for (auto& point_ref : req->array.array) {
 
     mrs_msgs::msg::ReferenceStamped ref_stamped;
-    ref_stamped.header    = req.array.header;
+    ref_stamped.header    = req->array.header;
     ref_stamped.reference = point_ref;
 
     RCLCPP_INFO(this->get_logger(),"[OctomapPlanner]: Input obstacle point = [%.2f, %.2f, %.2f]", point_ref.position.x, point_ref.position.y, point_ref.position.z);
@@ -998,10 +997,10 @@ void OctomapPlanner::callbackAddVirtualObstacle(const std::shared_ptr<mrs_msgs::
     auto res_t = transformer_->transformSingle(ref_stamped, octree_frame);
 
     if (!res_t) {
-      res.success = {false};
-      res.message = "could not transform virtual obstacle to the map frame";
-      RCLCPP_ERROR(this->get_logger(),"[MrsOctomapPlanner]: %s", res.message.c_str());
-      return true;
+      res->success = {false};
+      res->message = "could not transform virtual obstacle to the map frame";
+      RCLCPP_ERROR(this->get_logger(),"[MrsOctomapPlanner]: %s", res->message.c_str());
+      return;
     }
 
     virt_obst_in_octree_frame.push_back(res_t.value().reference);
@@ -1079,8 +1078,8 @@ void OctomapPlanner::callbackAddVirtualObstacle(const std::shared_ptr<mrs_msgs::
 
   marker.points.reserve(edge_indices.size());
   for (const auto& e : edge_indices) {
-    geometry_msgs::Point p_start;
-    geometry_msgs::Point p_end;
+    geometry_msgs::msg::Point p_start;
+    geometry_msgs::msg::Point p_end;
 
     p_start.x = obst.vertices[e.first].x();
     p_start.y = obst.vertices[e.first].y();
@@ -1103,10 +1102,10 @@ void OctomapPlanner::callbackAddVirtualObstacle(const std::shared_ptr<mrs_msgs::
   RCLCPP_INFO(this->get_logger(),"                        p1: %.1f %.1f %.1f", p1.x(), p1.y(), p1.z());
   RCLCPP_INFO(this->get_logger(),"                        p2: %.1f %.1f %.1f", p2.x(), p2.y(), p2.z());
 
-  res.success = {true};
-  res.message = "obstacle added";
+  res->success = {true};
+  res->message = "obstacle added";
 
-  return true;
+  return;
 }
 
 //}
@@ -1116,7 +1115,7 @@ void OctomapPlanner::callbackAddVirtualObstacle(const std::shared_ptr<mrs_msgs::
 void OctomapPlanner::callbackRemoveVirtualObstacles(const std::shared_ptr<std_srvs::srv::Trigger::Request> req, std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
 
   if (!is_initialized_) {
-    return false;
+    return;
   }
 
   size_t virt_obst_size = virtual_obstacles_.size();
@@ -1136,9 +1135,9 @@ void OctomapPlanner::callbackRemoveVirtualObstacles(const std::shared_ptr<std_sr
 
 
   RCLCPP_INFO_STREAM(this->get_logger(),"[MrsOctomapPlanner]: " << ss.str());
-  res.success = true;
-  res.message = ss.str();
-  return true;
+  res->success = true;
+  res->message = ss.str();
+  return;
 }
 
 //}
@@ -1155,10 +1154,10 @@ void OctomapPlanner::timerMain() {
 
   /* prerequsities //{ */
 
-  const bool got_octomap              = sh_octomap_.hasMsg() && (this->now() - sh_octomap_.lastMsgTime()).toSec() < 2.0;
-  const bool got_tracker_cmd          = sh_tracker_cmd_.hasMsg() && (this->now() - sh_tracker_cmd_.lastMsgTime()).toSec() < 2.0;
-  const bool got_control_manager_diag = sh_control_manager_diag_.hasMsg() && (this->now() - sh_control_manager_diag_.lastMsgTime()).toSec() < 2.0;
-  const bool got_constraints          = sh_constraints_.hasMsg() && (this->now() - sh_constraints_.lastMsgTime()).toSec() < 2.0;
+  const bool got_octomap              = sh_octomap_.hasMsg() && (this->now() - sh_octomap_.lastMsgTime()).seconds() < 2.0;
+  const bool got_tracker_cmd          = sh_tracker_cmd_.hasMsg() && (this->now() - sh_tracker_cmd_.lastMsgTime()).seconds() < 2.0;
+  const bool got_control_manager_diag = sh_control_manager_diag_.hasMsg() && (this->now() - sh_control_manager_diag_.lastMsgTime()).seconds() < 2.0;
+  const bool got_constraints          = sh_constraints_.hasMsg() && (this->now() - sh_constraints_.lastMsgTime()).seconds() < 2.0;
 
   if (!got_octomap || !got_tracker_cmd || !got_control_manager_diag || !got_constraints) {
     RCLCPP_INFO_THROTTLE(this->get_logger(),*this->get_clock(),1000, "[MrsOctomapPlanner]: waiting for data: octomap = %s, position cmd = %s, ControlManager diag = %s, constraints = %s",
@@ -1179,8 +1178,8 @@ void OctomapPlanner::timerMain() {
     new_user_goal_received_          = false;
   }
 
-  const mrs_msgs::msg::ControlManagerDiagnostics::ConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
-  const mrs_msgs::msg::TrackerCommand::ConstPtr            tracker_cmd          = sh_tracker_cmd_.getMsg();
+  const mrs_msgs::msg::ControlManagerDiagnostics::ConstSharedPtr control_manager_diag = sh_control_manager_diag_.getMsg();
+  const mrs_msgs::msg::TrackerCommand::ConstSharedPtr            tracker_cmd          = sh_tracker_cmd_.getMsg();
 
   std::shared_ptr<OcTree_t> octree;
 
@@ -1267,7 +1266,7 @@ void OctomapPlanner::timerMain() {
 
       rclcpp::Time init_cond_time = this->now() + rclcpp::Duration(time_for_planning + _time_for_trajectory_generator_);
 
-      RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: init cond time %.2f s", init_cond_time.toSec());
+      RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: init cond time %.2f s", init_cond_time.seconds());
 
       timer.checkpoint("before getInitialCondition");
 
@@ -1293,7 +1292,7 @@ void OctomapPlanner::timerMain() {
         break;
       }
 
-      RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: init cond time stamp %.2f", initial_condition.value().header.stamp.toSec());
+      //RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: init cond time stamp %.2f", (initial_condition.value().header.stamp.seconds());
 
       octomap::point3d plan_from;
       plan_from.x() = initial_condition.value().reference.position.x;
@@ -1355,7 +1354,7 @@ void OctomapPlanner::timerMain() {
         if (_use_subt_planner_) {
 
           // | -------------------- MRS SubT planner -------------------- |
-          mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner();
+          mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner(shared_from_this<mrs_lib::OctomapPlanner>(), "MrsOctomapPlanner SubT Astar Planner");  //to change
 
           subt_planner.initialize(true, time_for_planning - _subt_processing_timeout_, _subt_processing_timeout_, safe_obstacle_distance, _subt_clearing_dist_,
                                   _min_altitude_, max_altitude, _subt_debug_info_, bv_planner_, false);
@@ -1494,7 +1493,7 @@ void OctomapPlanner::timerMain() {
       {
         std::scoped_lock lock(mutex_initial_condition_);
 
-        mrs_msgs::msg::TrackerCommandConstPtr tracker_cmd = sh_tracker_cmd_.getMsg();
+        mrs_msgs::msg::TrackerCommand::ConstSharedPtr tracker_cmd = sh_tracker_cmd_.getMsg();
 
         auto octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
 
@@ -1525,15 +1524,15 @@ void OctomapPlanner::timerMain() {
         path_stamp = rclcpp::Time(0);
       }
 
-      RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: Calling path service with timestamp = %.3f at time %.3f.", path_stamp.toSec(), this->now().toSec());
+      RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: Calling path service with timestamp = %.3f at time %.3f.", path_stamp.seconds(), this->now().seconds());
       rclcpp::Time tg_start = this->now();
 
       mrs_msgs::srv::GetPathSrv srv_get_path;
-      srv_get_path.request.path.header.frame_id = octree_frame_;
-      srv_get_path.request.path.header.stamp    = path_stamp;
-      srv_get_path.request.path.fly_now         = false;
-      srv_get_path.request.path.relax_heading   = _trajectory_generation_relax_heading_;
-      srv_get_path.request.path.use_heading     = _trajectory_generation_use_heading_;
+      srv_get_path.Request.path.header.frame_id = octree_frame_;
+      srv_get_path.Request.path.header.stamp    = path_stamp;
+      srv_get_path.Request.path.fly_now         = false;
+      srv_get_path.Request.path.relax_heading   = _trajectory_generation_relax_heading_;
+      srv_get_path.Request.path.use_heading     = _trajectory_generation_use_heading_;
 
       std::vector<Eigen::Vector4d> eig_waypoints;
 
@@ -1586,14 +1585,14 @@ void OctomapPlanner::timerMain() {
               ref.heading = atan2(dy, dx) + _heading_offset_;
             } else {
               if (i > 0) {
-                ref.heading = srv_get_path.request.path.points.back().heading;
+                ref.heading = srv_get_path.Request.path.points.back().heading;
               } else {
                 ref.heading = initial_heading_;
               }
             }
           } else {
             if (waypoints.first.size() > 1) {
-              ref.heading = srv_get_path.request.path.points.back().heading;
+              ref.heading = srv_get_path.Request.path.points.back().heading;
             } else {
               ref.heading = initial_heading_;
             }
@@ -1614,14 +1613,14 @@ void OctomapPlanner::timerMain() {
             inter_ref.position.z =
                 waypoints.first[i - 1].z() + (waypoints.first[i].z() - waypoints.first[i - 1].z()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
             inter_ref.heading = ref.heading;
-            srv_get_path.request.path.points.push_back(inter_ref);
+            srv_get_path.Request.path.points.push_back(inter_ref);
             /* RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y, */
             /* inter_ref.position.z, inter_ref.heading); */
           }
         }
 
         RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: TG input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, ref.position.x, ref.position.y, ref.position.z, ref.heading);
-        srv_get_path.request.path.points.push_back(ref);
+        srv_get_path.Request.path.points.push_back(ref);
 
         cum_time += segment_times[i];
 
@@ -1647,27 +1646,27 @@ void OctomapPlanner::timerMain() {
           RCLCPP_ERROR(this->get_logger(),"[MrsOctomapPlanner]: service call for trajectory failed");
           break;
         } else {
-          if (!srv_get_path.response.success) {
-            RCLCPP_ERROR(this->get_logger(),"[MrsOctomapPlanner]: service call for trajectory failed: '%s'", srv_get_path.response.message.c_str());
+          if (!srv_get_path.Response.success) {
+            RCLCPP_ERROR(this->get_logger(),"[MrsOctomapPlanner]: service call for trajectory failed: '%s'", srv_get_path.Response.message.c_str());
             break;
           }
         }
       }
 
-      RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: Trajectory generation took %.2f s", (this->now() - tg_start).toSec());
+      RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: Trajectory generation took %.2f s", (this->now() - tg_start).seconds());
 
       {
         std::scoped_lock lock(mutex_bv_processed_);
 
         bv_processed_.clearBuffers();
-        for (auto& p : srv_get_path.response.trajectory.points) {
+        for (auto& p : srv_get_path.Response.trajectory.points) {
           auto v = Eigen::Vector3d(p.position.x, p.position.y, p.position.z);
           bv_processed_.addPoint(v, 0, 1, 0, 1);
         }
         bv_processed_.publish();
       }
 
-      auto trajectory = srv_get_path.response.trajectory;
+      auto trajectory = srv_get_path.Response.trajectory;
 
       // check if the trajectory is safe
       bool ray_is_cool = true;
@@ -1704,15 +1703,15 @@ void OctomapPlanner::timerMain() {
       set_timepoints_ = true;
 
       // set user goal heading for final point such that it is achieved independently on length of the trajectory
-      if (_use_user_heading_for_final_point_ && !srv_get_path.response.trajectory.points.empty()) {
-        srv_get_path.response.trajectory.points.push_back(srv_get_path.response.trajectory.points.back());
-        srv_get_path.response.trajectory.points.back().heading = user_goal_.heading;
+      if (_use_user_heading_for_final_point_ && !srv_get_path.Response.trajectory.points.empty()) {
+        srv_get_path.Response.trajectory.points.push_back(srv_get_path.Response.trajectory.points.back());
+        srv_get_path.Response.trajectory.points.back().heading = user_goal_.heading;
       }
 
       RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: publishing trajectory reference");
 
       mrs_msgs::srv::TrajectoryReferenceSrv srv_trajectory_reference;
-      srv_trajectory_reference.request.trajectory         = srv_get_path.response.trajectory;
+      srv_trajectory_reference.request.trajectory         = srv_get_path.Response.trajectory;
       srv_trajectory_reference.request.trajectory.fly_now = true;
 
       // set id of trajectory
@@ -1722,7 +1721,7 @@ void OctomapPlanner::timerMain() {
       int cb = 0;
 
       RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: Calling trajectory service with timestamp = %.3f at time %.3f.",
-               srv_trajectory_reference.request.trajectory.header.stamp.toSec(), this->now().toSec());
+               srv_trajectory_reference.request.trajectory.header.stamp.seconds(), this->now().seconds());
 
       {
         bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
@@ -1755,7 +1754,7 @@ void OctomapPlanner::timerMain() {
       }
 
       /* std::scoped_lock lock(mutex_initial_condition_); */
-      mrs_msgs::msg::TrackerCommandConstPtr tracker_cmd  = sh_tracker_cmd_.getMsg();
+      mrs_msgs::msg::TrackerCommand::ConstSharedPtr tracker_cmd  = sh_tracker_cmd_.getMsg();
       auto                             octree_frame = mrs_lib::get_mutexed(mutex_octree_, octree_frame_);
 
       // transform the position cmd to the map frame
@@ -1788,7 +1787,7 @@ void OctomapPlanner::timerMain() {
         break;
       }
 
-      if ((this->now() - (time_last_plan_ + rclcpp::Duration::from_seconds(_replan_after_))) > 0) {
+      if ((this->now() - (time_last_plan_ + rclcpp::Duration::from_seconds(_replan_after_))) > seconds(00)) {
 
         RCLCPP_INFO(this->get_logger(),"[MrsOctomapPlanner]: triggering replanning");
 
@@ -1850,11 +1849,11 @@ void OctomapPlanner::timerFutureCheck() {
   }
 
   mrs_msgs::msg::MpcPredictionFullState            prediction           = sh_tracker_cmd_.getMsg()->full_state_prediction;
-  mrs_msgs::msg::ControlManagerDiagnosticsConstPtr control_manager_diag = sh_control_manager_diag_.getMsg();
+  mrs_msgs::msg::ControlManagerDiagnostics::ConstSharedPtr control_manager_diag = sh_control_manager_diag_.getMsg();
 
   if (control_manager_diag->flying_normally && control_manager_diag->tracker_status.have_goal) {
 
-    geometry_msgs::TransformStamped tf;
+    geometry_msgs::msg::TransformStamped tf;
 
     auto ret = transformer_->getTransform(prediction.header.frame_id, octree_frame_, prediction.header.stamp);
 
@@ -2025,7 +2024,7 @@ void OctomapPlanner::timerDiagnostics() {
   auto planner_time_flag = mrs_lib::get_mutexed(mutex_planner_time_flag_, planner_time_flag_);
 
   if (_restart_planner_on_deadlock_ && planner_time_flag != rclcpp::Time(0)) {
-    if ((this->now() - planner_time_flag).toSec() > planner_deadlock_timeout_) {
+    if ((this->now() - planner_time_flag).seconds() > planner_deadlock_timeout_) {
       RCLCPP_ERROR(this->get_logger(),"[MrsOctomapPlanner]: Planner is deadlocked, restarting!");
       rclcpp::shutdown();
     }
@@ -2155,7 +2154,7 @@ std::optional<mrs_msgs::msg::ReferenceStamped> OctomapPlanner::getInitialConditi
     return {};
   }
 
-  if ((des_time - prediction_full_state.stamps.back()).toSec() > 0) {
+  if ((des_time - prediction_full_state.stamps.back()).seconds() > 0) {
     RCLCPP_ERROR_THROTTLE(this->get_logger(),*this->get_clock(),1000, "[MrsOctomapPlanner]: could not obtain initial condition, the desired time is too far in the future");
     return {};
   }
@@ -2167,7 +2166,7 @@ std::optional<mrs_msgs::msg::ReferenceStamped> OctomapPlanner::getInitialConditi
 
   for (int i = 0; i < prediction_full_state.stamps.size(); i++) {
 
-    if ((prediction_full_state.stamps[i] - des_time).toSec() > 0) {
+    if ((prediction_full_state.stamps[i] - des_time).seconds() > 0) {
       orig_reference.reference.position.x = prediction_full_state.position[i].x;
       orig_reference.reference.position.y = prediction_full_state.position[i].y;
       orig_reference.reference.position.z = prediction_full_state.position[i].z;
@@ -2210,7 +2209,7 @@ void OctomapPlanner::hover(void) {
 
   avoiding_oscillations_ = false;
 
-  std_srvs::Trigger srv_out;
+  std_srvs::srv::Trigger srv_out;
 
   sc_hover_.call(srv_out);
 }
@@ -2225,7 +2224,7 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
     return std::vector<double>(0);
   }
 
-  const mrs_msgs::msg::DynamicsConstraintsConstPtr constraints = sh_constraints_.getMsg();
+  const mrs_msgs::msg::DynamicsConstraints::ConstSharedPtr constraints = sh_constraints_.getMsg();
 
   const double v_max_vertical    = std::min(constraints->vertical_ascending_speed, constraints->vertical_descending_speed);
   const double a_max_vertical    = std::min(constraints->vertical_ascending_acceleration, constraints->vertical_descending_acceleration);
@@ -2413,9 +2412,9 @@ std::optional<OcTreePtr_t> OctomapPlanner::msgToMap(const octomap_msgs::msg::Oct
   octomap::AbstractOcTree* abstract_tree;
 
   if (octomap->binary) {
-    abstract_tree = octomap_msgs::msg::binaryMsgToMap(*octomap);
+    abstract_tree = octomap_msgs::binaryMsgToMap(*octomap);
   } else {
-    abstract_tree = octomap_msgs::msg::fullMsgToMap(*octomap);
+    abstract_tree = octomap_msgs::fullMsgToMap(*octomap);
   }
 
   if (!abstract_tree) {
