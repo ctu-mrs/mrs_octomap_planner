@@ -96,6 +96,10 @@ public:
 
 private:
   void initialize();
+  std::function<void()> callback_timer_main_;
+  std::function<void()> callback_timer_future_check_;
+  std::function<void()> callback_timer_diagnostics_;
+  std::function<void()> callback_timer_publish_virtual_obstacles_;
 
 
   std::atomic<bool> is_initialized_ = false;
@@ -149,6 +153,7 @@ private:
   int    _collision_check_point_count_;
   int    _min_allowed_trajectory_points_after_crop_;
   bool   _scope_timer_enabled_;
+  std::shared_ptr<mrs_lib::ScopeTimerLogger> scope_timer_logger_;
   double _scope_timer_duration_;
   double _goal_reached_dist_;
   int    _max_attempts_to_replan_;
@@ -527,20 +532,27 @@ void OctomapPlanner::initialize() {
 
   // | ------------------------- timers ------------------------- |
 
-  std::function<void> callback_timer_main = std::bind(&OctomapPlanner::timerMain, this);
-  timer_main_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_main_timer_, clock_), callback_timer_main);
+  mrs_lib::TimerHandlerOptions timer_opts_start;
+
+  timer_opts_start.node           = node_;
+  timer_opts_start.callback_group = cbkgrp_timers_;
+  timer_opts_start.autostart      = true;
+
+  
+  callback_timer_main_ = std::bind(&OctomapPlanner::timerMain, this);
+  timer_main_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_main_timer_, clock_), callback_timer_main_);
   timer_main_->start();
 
-  std::function<void> callback_timer_future_check = std::bind(&OctomapPlanner::timerFutureCheck, this);
-  timer_future_check_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_future_check_timer_, clock_), callback_timer_future_check);
+  callback_timer_future_check_ = std::bind(&OctomapPlanner::timerFutureCheck, this);
+  timer_future_check_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_future_check_timer_, clock_), callback_timer_future_check_);
   timer_future_check_->start(); 
 
-  std::function<void> callback_timer_diagnostics = std::bind(&OctomapPlanner::timerDiagnostics, this);
-  timer_diagnostics_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_diagnostics_timer_, clock_), callback_timer_diagnostics);
+  callback_timer_diagnostics_ = std::bind(&OctomapPlanner::timerDiagnostics, this);
+  timer_diagnostics_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_diagnostics_timer_, clock_), callback_timer_diagnostics_);
   timer_diagnostics_->start();
 
-  std::function<void> callback_timer_publish_virtual_obstacles = std::bind(&OctomapPlanner::timerPublishVirtualObstacles, this);
-  timer_publish_virtual_obstacles_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_virtual_obstacle_pub_timer_, clock_), callback_timer_publish_virtual_obstacles);
+  callback_timer_publish_virtual_obstacles_ = std::bind(&OctomapPlanner::timerPublishVirtualObstacles, this);
+  timer_publish_virtual_obstacles_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_virtual_obstacle_pub_timer_, clock_), callback_timer_publish_virtual_obstacles_);
   timer_publish_virtual_obstacles_->start();
 
   // | --------------------- service servers -------------------- |
@@ -1248,7 +1260,7 @@ void OctomapPlanner::timerMain() {
 
     case STATE_PLANNING: {
 
-      mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerMain - STATE_PLANNING", scope_timer_logger_, _scope_timer_enabled_);
+      mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer(node_, "timerMain - STATE_PLANNING", scope_timer_logger_, _scope_timer_enabled_);
 
       if (!octree->getRoot()) {
 
@@ -1285,7 +1297,7 @@ void OctomapPlanner::timerMain() {
 
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: planning timeout %.2f s", time_for_planning);
 
-      rclcpp::Time init_cond_time = node_->now() + rclcpp::Duration(time_for_planning + _time_for_trajectory_generator_);
+      rclcpp::Time init_cond_time = node_->now() + rclcpp::Time(time_for_planning + _time_for_trajectory_generator_);
 
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: init cond time %.2f s", init_cond_time.seconds());
 
@@ -1298,7 +1310,7 @@ void OctomapPlanner::timerMain() {
 
         initial_condition = getInitialCondition(init_cond_time);
         RCLCPP_WARN(node_->get_logger(),"[MrsOctomapPlanner]: Trying to get initial condition updated with the last sent path.");
-        rclcpp::Duration(0.005).sleep();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
         iter++;
       }
 
@@ -1403,7 +1415,8 @@ void OctomapPlanner::timerMain() {
 
         } else {
 
-          mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(
+
+          mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(node_, "MrsOctomapPlanner MRS Astar Planner",
               safe_obstacle_distance, _euclidean_distance_cutoff_, _distance_transform_distance_, planning_tree_resolution_, _distance_penalty_,
               _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, max_altitude, _unknown_is_occupied_, bv_planner_);
 
@@ -1549,12 +1562,21 @@ void OctomapPlanner::timerMain() {
       rclcpp::Time tg_start = node_->now();
 
       mrs_msgs::srv::GetPathSrv srv_get_path;
-      srv_get_path.path.header.frame_id = octree_frame_;
+
+      /*srv_get_path.path.header.frame_id = octree_frame_;
       srv_get_path.path.header.stamp    = path_stamp;
       srv_get_path.path.fly_now         = false;
       srv_get_path.path.relax_heading   = _trajectory_generation_relax_heading_;
       srv_get_path.path.use_heading     = _trajectory_generation_use_heading_;
+      */
 
+      std::shared_ptr<mrs_msgs::srv::GetPathSrv::Request> req_path = std::make_shared<mrs_msgs::srv::GetPathSrv::Request>(srv_get_path);
+      req_path->path.header.frame_id = octree_frame_;
+      req_path->path.header.stamp    = path_stamp;
+      req_path->path.fly_now         = false;  
+      req_path->path.relax_heading   = _trajectory_generation_relax_heading_;
+      req_path->path.use_heading     = _trajectory_generation_use_heading_;
+      
       std::vector<Eigen::Vector4d> eig_waypoints;
 
       // create an array of Eigen waypoints
@@ -1606,14 +1628,14 @@ void OctomapPlanner::timerMain() {
               ref.heading = atan2(dy, dx) + _heading_offset_;
             } else {
               if (i > 0) {
-                ref.heading = srv_get_path.Request.path.points.back().heading;
+                ref.heading = req_path->path.points.back().heading;
               } else {
                 ref.heading = initial_heading_;
               }
             }
           } else {
             if (waypoints.first.size() > 1) {
-              ref.heading = srv_get_path.Request.path.points.back().heading;
+              ref.heading = req_path->path.points.back().heading;
             } else {
               ref.heading = initial_heading_;
             }
@@ -1622,6 +1644,7 @@ void OctomapPlanner::timerMain() {
 
           ref.heading = user_goal.heading;
         }
+        req_path->path.points.push_back(ref);
 
         if (i > 0) {
           double waypoint_dist = (waypoints.first[i] - waypoints.first[i - 1]).norm();
@@ -1634,14 +1657,14 @@ void OctomapPlanner::timerMain() {
             inter_ref.position.z =
                 waypoints.first[i - 1].z() + (waypoints.first[i].z() - waypoints.first[i - 1].z()) / waypoint_dist * _max_segment_length_for_heading_sampling_;
             inter_ref.heading = ref.heading;
-            srv_get_path.Request.path.points.push_back(inter_ref);
+            req_path->path.points.push_back(inter_ref);
             /* RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: TG inter input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, inter_ref.position.x, inter_ref.position.y, */
             /* inter_ref.position.z, inter_ref.heading); */
           }
         }
 
         RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: TG input point %02d: [%.2f, %.2f, %.2f, %.2f]", i, ref.position.x, ref.position.y, ref.position.z, ref.heading);
-        srv_get_path.Request.path.points.push_back(ref);
+        req_path->path.points.push_back(ref);
 
         cum_time += segment_times[i];
 
@@ -1650,6 +1673,10 @@ void OctomapPlanner::timerMain() {
           break;
         }
       }
+
+      if (!req_path->path.points.empty()) {
+          req_path->path.points.back().heading = user_goal.heading;
+    }
 
       if (interrupted_) {
         RCLCPP_WARN(node_->get_logger(),"[MrsOctomapPlanner]: planner interrupted, breaking main timer");
@@ -1660,19 +1687,20 @@ void OctomapPlanner::timerMain() {
 
       timer.checkpoint("calling trajectory generation");
 
-      {
-        bool success = sc_get_trajectory_.call(srv_get_path);
+        req_path->path.points.back().position.x = waypoints.first.back().x();
+        
+        auto res_path = sc_get_trajectory_.callSync(req_path);
 
-        if (!success) {
+        if (!res_path) {
           RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory failed");
           break;
         } else {
-          if (!srv_get_path.Response.success) {
-            RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory failed: '%s'", srv_get_path.Response.message.c_str());
+          if (!res_path.value()->success) {
+            RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory failed: '%s'", res_path.value()->message.c_str());
             break;
           }
         }
-      }
+    
 
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Trajectory generation took %.2f s", (node_->now() - tg_start).seconds());
 
@@ -1680,14 +1708,14 @@ void OctomapPlanner::timerMain() {
         std::scoped_lock lock(mutex_bv_processed_);
 
         bv_processed_.clearBuffers();
-        for (auto& p : srv_get_path.Response.trajectory.points) {
+        for (auto& p : res_path.value()->trajectory.points) {
           auto v = Eigen::Vector3d(p.position.x, p.position.y, p.position.z);
           bv_processed_.addPoint(v, 0, 1, 0, 1);
         }
         bv_processed_.publish();
       }
 
-      auto trajectory = srv_get_path.Response.trajectory;
+      auto trajectory = res_path.value()->trajectory;
 
       // check if the trajectory is safe
       bool ray_is_cool = true;
@@ -1724,40 +1752,40 @@ void OctomapPlanner::timerMain() {
       set_timepoints_ = true;
 
       // set user goal heading for final point such that it is achieved independently on length of the trajectory
-      if (_use_user_heading_for_final_point_ && !srv_get_path.Response.trajectory.points.empty()) {
-        srv_get_path.Response.trajectory.points.push_back(srv_get_path.Response.trajectory.points.back());
-        srv_get_path.Response.trajectory.points.back().heading = user_goal_.heading;
+      if (_use_user_heading_for_final_point_ && !res_path.value()->trajectory.points.empty()) {
+        res_path.value()->trajectory.points.push_back(res_path.value()->trajectory.points.back());
+        res_path.value()->trajectory.points.back().heading = user_goal_.heading;
       }
 
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: publishing trajectory reference");
 
       mrs_msgs::srv::TrajectoryReferenceSrv srv_trajectory_reference;
-      srv_trajectory_reference.Request.trajectory         = srv_get_path.Response.trajectory;
-      srv_trajectory_reference.Request.trajectory.fly_now = true;
+      std::shared_ptr<mrs_msgs::srv::TrajectoryReferenceSrv::Request> req_traj = std::make_shared<mrs_msgs::srv::TrajectoryReferenceSrv::Request>(srv_trajectory_reference);
+      req_traj->trajectory         = res_path.value()->trajectory;
+      req_traj->trajectory.fly_now = true;
 
       // set id of trajectory
       path_id_++;
-      srv_trajectory_reference.Request.trajectory.input_id = path_id_;
+      req_traj->trajectory.input_id = path_id_;
 
       int cb = 0;
 
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Calling trajectory service with timestamp = %.3f at time %.3f.",
-               srv_trajectory_reference.Request.trajectory.header.stamp.seconds(), node_->now().seconds());
+               req_traj->trajectory.header.stamp.seconds(), node_->now().seconds());
 
-      {
-        bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
+      
+        auto res_traj = sc_trajectory_reference_.callSync(req_traj);
 
-        if (!success) {
-          RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory reference failed");
+      if (!res_traj) {
+        RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory reference failed");
+        break;
+      } else {
+        if (!res_traj.value()->success) {
+          RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", res_traj.value()->message.c_str());
           break;
-        } else {
-          if (!srv_trajectory_reference.response.success) {
-            RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
-            break;
-          }
         }
       }
-
+      
       changeState(STATE_MOVING);
       break;
     }
@@ -1808,7 +1836,7 @@ void OctomapPlanner::timerMain() {
         break;
       }
 
-      if ((node_->now() - (time_last_plan_ + rclcpp::Duration::from_seconds(_replan_after_))) > seconds(00)) {
+      if ((node_->now() - (time_last_plan_ + rclcpp::Time(_replan_after_).seconds())) > std::chrono::seconds(00)) {
 
         RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: triggering replanning");
 
@@ -1851,8 +1879,7 @@ void OctomapPlanner::timerFutureCheck() {
   }
 
   RCLCPP_INFO_ONCE(node_->get_logger(),"[MrsOctomapPlanner]: future check timer spinning");
-
-  const mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerFutureCheck", scope_timer_logger_, _scope_timer_enabled_);
+  const mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer(node_, "timerFutureCheck", scope_timer_logger_, _scope_timer_enabled_);
 
   std::shared_ptr<OcTree_t> octree;
 
@@ -1948,18 +1975,20 @@ void OctomapPlanner::timerFutureCheck() {
                        int(trajectory.points.size()), orig_traj_size);
 
               mrs_msgs::srv::TrajectoryReferenceSrv srv_trajectory_reference;
-              srv_trajectory_reference.request.trajectory = trajectory;
+              std::shared_ptr<mrs_msgs::srv::TrajectoryReferenceSrv::Request> req_traj_ref =
+                  std::make_shared<mrs_msgs::srv::TrajectoryReferenceSrv::Request>(srv_trajectory_reference);
+              req_traj_ref->trajectory = trajectory;
 
-              bool success = sc_trajectory_reference_.call(srv_trajectory_reference);
+              auto res_traj_ref = sc_trajectory_reference_.callSync(req_traj_ref);
 
               cropped_trajectory = true;
 
-              if (!success) {
+              if (!res_traj_ref) {
                 RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory reference failed");
                 break;
               } else {
-                if (!srv_trajectory_reference.response.success) {
-                  RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", srv_trajectory_reference.response.message.c_str());
+                if (!res_traj_ref.value()->success) {
+                  RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: service call for trajectory reference failed: '%s'", res_traj_ref.value()->message.c_str());
                   break;
                 }
               }
@@ -2230,9 +2259,9 @@ void OctomapPlanner::hover(void) {
 
   avoiding_oscillations_ = false;
 
-  std_srvs::srv::Trigger srv_out;
+  std::shared_ptr<std_srvs::srv::Trigger::Request> srv_out = std::make_shared<std_srvs::srv::Trigger::Request>();
 
-  sc_hover_.call(srv_out);
+  sc_hover_.callSync(srv_out);
 }
 
 //}
