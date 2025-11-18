@@ -512,7 +512,7 @@ void OctomapPlanner::initialize() {
 
   // | ----------------------- transformer ---------------------- |
 
-  transformer_ = std::make_unique<mrs_lib::Transformer>("Pathfinder");
+  transformer_ = std::make_unique<mrs_lib::Transformer>(node_);
   transformer_->setDefaultPrefix(_uav_name_);
   transformer_->retryLookupNewest(true);
 
@@ -1097,7 +1097,7 @@ void OctomapPlanner::callbackAddVirtualObstacle(const std::shared_ptr<mrs_msgs::
   visualization_msgs::msg::Marker edges;
   auto&                      marker = obst.vis_marker;
   marker.header.frame_id            = octree_frame;
-  marker.header.stamp               = node_->now();
+  marker.header.stamp               = clock_->now();
   marker.ns                         = "edges";
   marker.id                         = 0;
   marker.type                       = visualization_msgs::msg::Marker::LINE_LIST;
@@ -1187,10 +1187,10 @@ void OctomapPlanner::timerMain() {
 
   /* prerequsities //{ */
 
-  const bool got_octomap              = sh_octomap_.hasMsg() && (node_->now() - sh_octomap_.lastMsgTime()).seconds() < 2.0;
-  const bool got_tracker_cmd          = sh_tracker_cmd_.hasMsg() && (node_->now() - sh_tracker_cmd_.lastMsgTime()).seconds() < 2.0;
-  const bool got_control_manager_diag = sh_control_manager_diag_.hasMsg() && (node_->now() - sh_control_manager_diag_.lastMsgTime()).seconds() < 2.0;
-  const bool got_constraints          = sh_constraints_.hasMsg() && (node_->now() - sh_constraints_.lastMsgTime()).seconds() < 2.0;
+  const bool got_octomap              = sh_octomap_.hasMsg() && (clock_->now() - sh_octomap_.lastMsgTime()).seconds() < 2.0;
+  const bool got_tracker_cmd          = sh_tracker_cmd_.hasMsg() && (clock_->now() - sh_tracker_cmd_.lastMsgTime()).seconds() < 2.0;
+  const bool got_control_manager_diag = sh_control_manager_diag_.hasMsg() && (clock_->now() - sh_control_manager_diag_.lastMsgTime()).seconds() < 2.0;
+  const bool got_constraints          = sh_constraints_.hasMsg() && (clock_->now() - sh_constraints_.lastMsgTime()).seconds() < 2.0;
 
   if (!got_octomap || !got_tracker_cmd || !got_control_manager_diag || !got_constraints) {
     RCLCPP_INFO_THROTTLE(node_->get_logger(),*clock_,1000, "[MrsOctomapPlanner]: waiting for data: octomap = %s, position cmd = %s, ControlManager diag = %s, constraints = %s",
@@ -1230,7 +1230,7 @@ void OctomapPlanner::timerMain() {
   {
     std::scoped_lock lock(mutex_diagnostics_);
 
-    diagnostics_.header.stamp    = node_->now();
+    diagnostics_.header.stamp    = clock_->now();
     diagnostics_.header.frame_id = octree_frame_;
     diagnostics_.idle            = false;
 
@@ -1287,19 +1287,30 @@ void OctomapPlanner::timerMain() {
       }
 
       /* get the initial condition (predicted pose of UAV at a specific time) */ /*//{*/
-      double time_for_planning;
+      double time_for_planning_s = 0.0;
+      if (control_manager_diag->tracker_status.have_goal) {
+        time_for_planning_s = _timeout_threshold_;
+      } else {
+        time_for_planning_s = _timeout_threshold_ + pow(1.5, float(replanning_counter_));
+      }
+
+      RCLCPP_INFO(node_->get_logger(), "[MrsOctomapPlanner]: planning timeout %.2f s", time_for_planning_s);
+      
+      /*
+      rclcpp::Time time_for_planning;
 
       if (control_manager_diag->tracker_status.have_goal) {
-        time_for_planning = _timeout_threshold_;
+        time_for_planning = rclcpp::Time(_timeout_threshold_);
       } else {
         time_for_planning = _timeout_threshold_ + pow(1.5, float(replanning_counter_));
       }
 
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: planning timeout %.2f s", time_for_planning);
+      */
+      
+      rclcpp::Time init_cond_time = clock_->now() + rclcpp::Duration::from_seconds(time_for_planning_s + _time_for_trajectory_generator_);
 
-      rclcpp::Time init_cond_time = node_->now() + rclcpp::Time(time_for_planning + _time_for_trajectory_generator_);
-
-      RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: init cond time %.2f s", init_cond_time.seconds());
+      RCLCPP_INFO(node_->get_logger(), "[MrsOctomapPlanner]: init cond time %.2f s", init_cond_time.seconds());
 
       timer.checkpoint("before getInitialCondition");
 
@@ -1310,7 +1321,7 @@ void OctomapPlanner::timerMain() {
 
         initial_condition = getInitialCondition(init_cond_time);
         RCLCPP_WARN(node_->get_logger(),"[MrsOctomapPlanner]: Trying to get initial condition updated with the last sent path.");
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        rclcpp::sleep_for(std::chrono::milliseconds(5));
         iter++;
       }
 
@@ -1345,7 +1356,7 @@ void OctomapPlanner::timerMain() {
 
       /* plan the path to goal */ /*//{*/
       std::pair<std::vector<octomap::point3d>, bool> waypoints;
-      /* rclcpp::Time                                      mct_start = node_->now(); */
+      /* rclcpp::Time                                      mct_start = clock_->now(); */
 
       auto safe_obstacle_distance = mrs_lib::get_mutexed(mutex_safety_distance_, _safe_obstacle_distance_);
       auto max_altitude           = mrs_lib::get_mutexed(mutex_max_altitude_, _max_altitude_);
@@ -1389,7 +1400,7 @@ void OctomapPlanner::timerMain() {
           // | -------------------- MRS SubT planner -------------------- |
           mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner(node_, "MrsOctomapPlanner SubT Astar Planner");  //to change
 
-          subt_planner.initialize(true, time_for_planning - _subt_processing_timeout_, _subt_processing_timeout_, safe_obstacle_distance, _subt_clearing_dist_,
+          subt_planner.initialize(true, time_for_planning_s - _subt_processing_timeout_, _subt_processing_timeout_, safe_obstacle_distance, _subt_clearing_dist_,
                                   _min_altitude_, max_altitude, _subt_debug_info_, bv_planner_, false);
           subt_planner.setAstarAdmissibility(_subt_admissibility_);
 
@@ -1398,7 +1409,7 @@ void OctomapPlanner::timerMain() {
           {
             std::scoped_lock lock(mutex_planner_time_flag_);
 
-            planner_time_flag_ = node_->now();
+            planner_time_flag_ = clock_->now();
           }
 
           waypoints = subt_planner.findPath(plan_from, user_goal_octpoint, octree, _subt_make_path_straight_, _subt_apply_postprocessing_,
@@ -1423,10 +1434,10 @@ void OctomapPlanner::timerMain() {
           {
             std::scoped_lock lock(mutex_planner_time_flag_);
 
-            planner_time_flag_ = node_->now();
+            planner_time_flag_ = clock_->now();
           }
 
-          waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning);
+          waypoints = planner.findPath(plan_from, user_goal_octpoint, octree, time_for_planning_s);
 
           {
             std::scoped_lock lock(mutex_planner_time_flag_);
@@ -1509,7 +1520,7 @@ void OctomapPlanner::timerMain() {
         }
       }
 
-      time_last_plan_                  = node_->now();
+      time_last_plan_                  = clock_->now();
       first_planning_for_current_goal_ = false;
       detected_collision_              = false;
       avoiding_oscillations_           = false;
@@ -1554,12 +1565,12 @@ void OctomapPlanner::timerMain() {
 
       rclcpp::Time path_stamp = initial_condition.value().header.stamp;
 
-      if (node_->now() > path_stamp || !control_manager_diag->tracker_status.have_goal) {
+      if (clock_->now() > path_stamp || !control_manager_diag->tracker_status.have_goal) {
         path_stamp = rclcpp::Time(0);
       }
 
-      RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Calling path service with timestamp = %.3f at time %.3f.", path_stamp.seconds(), node_->now().seconds());
-      rclcpp::Time tg_start = node_->now();
+      RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Calling path service with timestamp = %.3f at time %.3f.", path_stamp.seconds(), clock_->now().seconds());
+      rclcpp::Time tg_start = clock_->now();
 
       mrs_msgs::srv::GetPathSrv srv_get_path;
 
@@ -1702,7 +1713,7 @@ void OctomapPlanner::timerMain() {
         }
     
 
-      RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Trajectory generation took %.2f s", (node_->now() - tg_start).seconds());
+      RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Trajectory generation took %.2f s", (clock_->now() - tg_start).seconds());
 
       {
         std::scoped_lock lock(mutex_bv_processed_);
@@ -1771,7 +1782,7 @@ void OctomapPlanner::timerMain() {
       int cb = 0;
 
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Calling trajectory service with timestamp = %.3f at time %.3f.",
-               req_traj->trajectory.header.stamp.seconds(), node_->now().seconds());
+               req_traj->trajectory.header.stamp, clock_->now().seconds());
 
       
         auto res_traj = sc_trajectory_reference_.callSync(req_traj);
@@ -1836,7 +1847,8 @@ void OctomapPlanner::timerMain() {
         break;
       }
 
-      if ((node_->now() - (time_last_plan_ + rclcpp::Time(_replan_after_).seconds())) > std::chrono::seconds(00)) {
+      if ((clock_->now().seconds() - (time_last_plan_.seconds() + _replan_after_)) > 0,0) {
+
 
         RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: triggering replanning");
 
@@ -2068,13 +2080,13 @@ void OctomapPlanner::timerDiagnostics() {
     pub_diagnostics_.publish(diagnostics);
   }
   catch (...) {
-    RCLCPP_ERROR(node_->get_logger(),"exception caught during publishing topic '%s'", pub_diagnostics_.getTopic().c_str());
+    //RCLCPP_ERROR(node_->get_logger(),"exception caught during publishing topic '%s'", diagnostics.c_str());
   }
 
   auto planner_time_flag = mrs_lib::get_mutexed(mutex_planner_time_flag_, planner_time_flag_);
 
   if (_restart_planner_on_deadlock_ && planner_time_flag != rclcpp::Time(0)) {
-    if ((node_->now() - planner_time_flag).seconds() > planner_deadlock_timeout_) {
+    if ((clock_->now() - planner_time_flag).seconds() > planner_deadlock_timeout_) {
       RCLCPP_ERROR(node_->get_logger(),"[MrsOctomapPlanner]: Planner is deadlocked, restarting!");
       rclcpp::shutdown();
     }
@@ -2104,7 +2116,7 @@ void OctomapPlanner::timerPublishVirtualObstacles() {
     for (int i = 0; i < virtual_obstacles_.size(); i++) {
       auto& obst = virtual_obstacles_.at(i);
 
-      obst.vis_marker.header.stamp = node_->now();
+      obst.vis_marker.header.stamp = clock_->now();
       obst.vis_marker.id           = i;
       ma.markers.push_back(obst.vis_marker);
     }
@@ -2114,7 +2126,7 @@ void OctomapPlanner::timerPublishVirtualObstacles() {
     pub_virtual_obstacles_.publish(ma);
   }
   catch (...) {
-    RCLCPP_ERROR(node_->get_logger(),"exception caught during publishing topic '%s'", pub_virtual_obstacles_.getTopic().c_str());
+    //RCLCPP_ERROR(node_->get_logger(),"exception caught during publishing topic '%s'", ma);
   }
 }
 
