@@ -79,7 +79,7 @@ include_directories(
   ${mrs_lib_INCLUDE_DIRS}
   ${mrs_modules_msgs_INCLUDE_DIRS}
   ${mrs_msgs_INCLUDE_DIRS}
-  # ${mrs_subt_planning_lib_INCLUDE_DIRS}
+  ${mrs_subt_planning_lib_INCLUDE_DIRS}
   ~/ws_mapping/install/mrs_subt_planning_lib/include            ##need to be modified
   )
 

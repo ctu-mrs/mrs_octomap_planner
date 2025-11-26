@@ -1781,8 +1781,8 @@ void OctomapPlanner::timerMain() {
 
       int cb = 0;
 
-      RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Calling trajectory service with timestamp = %.3f at time %.3f.",
-               req_traj->trajectory.header.stamp, clock_->now().seconds());
+      RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Calling trajectory service with timestamp = %d at time %.3f.",
+               req_traj->trajectory.header.stamp.sec, clock_->now().seconds());
 
       
         auto res_traj = sc_trajectory_reference_.callSync(req_traj);
@@ -1988,7 +1988,7 @@ void OctomapPlanner::timerFutureCheck() {
 
               mrs_msgs::srv::TrajectoryReferenceSrv srv_trajectory_reference;
               std::shared_ptr<mrs_msgs::srv::TrajectoryReferenceSrv::Request> req_traj_ref =
-                  std::make_shared<mrs_msgs::srv::TrajectoryReferenceSrv::Request>(srv_trajectory_reference);
+                  std::make_shared<mrs_msgs::srv::TrajectoryReferenceSrv::Request>();
               req_traj_ref->trajectory = trajectory;
 
               auto res_traj_ref = sc_trajectory_reference_.callSync(req_traj_ref);
@@ -2228,7 +2228,7 @@ std::optional<mrs_msgs::msg::ReferenceStamped> OctomapPlanner::getInitialConditi
 
   for (int i = 0; i < prediction_full_state.stamps.size(); i++) {
 
-    if ((prediction_full_state.stamps[i] - des_time).seconds() > 0) {
+    if ((prediction_full_state.stamps[i].sec - des_time.seconds()) > 0) {
       orig_reference.reference.position.x = prediction_full_state.position[i].x;
       orig_reference.reference.position.y = prediction_full_state.position[i].y;
       orig_reference.reference.position.z = prediction_full_state.position[i].z;
