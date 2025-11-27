@@ -24,7 +24,6 @@
   <depend>mrs_octomap_tools</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
-  <depend>mrs_subt_planning_lib</depend>
   <depend>dynamic_edt_3d</depend>
 
 

@@ -80,7 +80,6 @@ include_directories(
   ${mrs_modules_msgs_INCLUDE_DIRS}
   ${mrs_msgs_INCLUDE_DIRS}
   ${mrs_subt_planning_lib_INCLUDE_DIRS}
-  ~/ws_mapping/install/mrs_subt_planning_lib/include            ##need to be modified
   )
 
 
@@ -104,7 +103,6 @@ ament_target_dependencies(MrsOctomapPlanner_OctomapPlanner
   ${DEPENDENCIES}
 )
 
-
 ## components
 rclcpp_components_register_nodes(MrsOctomapPlanner_OctomapPlanner PLUGIN "mrs_octomap_planner::OctomapPlanner" EXECUTABLE MrsOctomapPlanner_OctomapPlanner)
 
@@ -113,7 +111,6 @@ target_compile_definitions(MrsOctomapPlanner_OctomapPlanner PRIVATE USE_ROS_TIME
 ## --------------------------------------------------------------
 ## |                           install                          |
 ## --------------------------------------------------------------
-
 
 ament_export_libraries(
   ${LIBRARIES}
@@ -127,7 +124,6 @@ install(
   RUNTIME DESTINATION bin
   )
 
-
 install(DIRECTORY include/
   DESTINATION .)
 
@@ -135,7 +131,6 @@ install(
   DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
   )
-
 
 install(
   DIRECTORY config/
