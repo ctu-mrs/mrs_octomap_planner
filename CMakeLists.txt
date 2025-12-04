@@ -1,4 +1,3 @@
-
 ## --------------------------------------------------------------
 ## |                        Octomap Planner                      |
 ## --------------------------------------------------------------
@@ -64,9 +63,9 @@ set(DEPENDENCIES
 #   MrsOctomapPlanner_MinimalOctomapPlanner
 #   )
 
-set(LIBRARIES
-  MrsOctomapPlanner_OctomapPlanner
-  )
+# set(LIBRARIES
+#   MrsOctomapPlanner_OctomapPlanner
+#   )
 
 foreach(DEP IN LISTS DEPENDENCIES)
   find_package(${DEP} REQUIRED)
@@ -79,11 +78,7 @@ include_directories(
   ${mrs_lib_INCLUDE_DIRS}
   ${mrs_modules_msgs_INCLUDE_DIRS}
   ${mrs_msgs_INCLUDE_DIRS}
-  ${mrs_subt_planning_lib_INCLUDE_DIRS}
   )
-
-
-
 
 ## --------------------------------------------------------------
 ## |                           Compile                          |
