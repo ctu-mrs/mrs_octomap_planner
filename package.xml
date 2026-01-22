@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
 
   <name>mrs_octomap_planner</name>
   <version>1.0.0</version>
@@ -13,20 +14,18 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_ros</buildtool_depend>
 
+  <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
-  <depend>mrs_modules_msgs</depend>
   <depend>mrs_lib</depend>
   <depend>mrs_msgs</depend>
-  <depend>std_msgs</depend>
-  <depend>std_srvs</depend>
+  <depend>mrs_modules_msgs</depend>
+  <depend>mrs_subt_planning_lib</depend>
+  <depend>nav_msgs</depend>
   <depend>octomap_msgs</depend>
   <depend>octomap_ros</depend>
-  <depend>mrs_octomap_tools</depend>
+  <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>nav_msgs</depend>
-  <depend>mrs_subt_planning_lib</depend>
   <depend>dynamic_edt_3d</depend>
-
 
   <exec_depend>liboctomap</exec_depend>
   <exec_depend>libeigen3-dev</exec_depend>

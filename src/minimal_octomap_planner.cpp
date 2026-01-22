@@ -61,7 +61,7 @@ namespace mrs_octomap_planner
 
     std::unique_ptr<mrs_lib::Transformer> transformer_;
 
-    std::optional<OcTreeSharedPtr_t> msgToMap(const octomap_msgs::msg::Octomap::ConstPtr octomap);
+    std::optional<OcTreeSharedPtr_t> msgToMap(const octomap_msgs::msg::Octomap::ConstSharedPtr octomap);
 
     rclcpp ::TimerBase::SharedPtr timer_init_;
   };
@@ -150,7 +150,7 @@ namespace mrs_octomap_planner
       mrs_lib::set_mutexed(mutex_octree_,msg->header.frame_id, octree_frame_);
   }
 
-  std::optional<OcTreeSharedPtr_t> MinimalOctomapPlanner::msgToMap(const octomap_msgs::msg::Octomap::ConstPtr octomap)
+  std::optional<OcTreeSharedPtr_t> MinimalOctomapPlanner::msgToMap(const octomap_msgs::msg::Octomap::ConstSharedPtr octomap)
   {
     octomap::AbstractOcTree* abstract_tree;
 
@@ -171,8 +171,8 @@ namespace mrs_octomap_planner
     }
   }
 
-  void MinimalOctomapPlanner::timeoutOctomap(const std::string& topic,
-                                             const rclcpp::Time&   last_msg)
+  void MinimalOctomapPlanner::timeoutOctomap([[maybe_unused]] const std::string& topic,
+                                             [[maybe_unused]] const rclcpp::Time&   last_msg)
   {
     if (!is_initialized_) {
       return;
@@ -319,14 +319,11 @@ namespace mrs_octomap_planner
     return;
   }
 
-
-
 MinimalOctomapPlanner::MinimalOctomapPlanner(const rclcpp::NodeOptions& options) : rclcpp::Node("minimal_octomap_planner", options) {
   timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1), std::bind(&MinimalOctomapPlanner::onInit, this));
 }
 
 }  // mrs_octomap_planner
-
 
 #include <rclcpp_components/register_node_macro.hpp>
 RCLCPP_COMPONENTS_REGISTER_NODE(mrs_octomap_planner::MinimalOctomapPlanner)

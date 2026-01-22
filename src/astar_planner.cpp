@@ -102,7 +102,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
     map_goal = generateTemporaryGoal(start_coord, goal_coord, tree);
     RCLCPP_INFO(m_node->get_logger(),"[Astar]: Generated a temporary goal: [%.2f, %.2f, %.2f]", map_goal.x(), map_goal.y(), map_goal.z());
     original_goal = false;
-  } else if (map_query->getValue() == TreeValue::OCCUPIED) {
+  } else if (map_query->getValue() == float(TreeValue::OCCUPIED)) {
     RCLCPP_INFO(m_node->get_logger(),"[Astar:] Goal is inside an inflated obstacle");
     map_goal = nearestFreeCoord(goal_coord, start_coord, tree);
     RCLCPP_INFO(m_node->get_logger(),"[Astar]: Generated a replacement goal: [%.2f, %.2f, %.2f]", map_goal.x(), map_goal.y(), map_goal.z());
@@ -159,9 +159,6 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
   Node best_node        = first;
   Node best_node_greedy = first;
-
-  int iter = 0;
-
   Node last_closed;
 
   while (!open.empty() && rclcpp::ok()) {
@@ -219,7 +216,7 @@ std::pair<std::vector<octomap::point3d>, bool> AstarPlanner::findPath(const octo
 
       /* RCLCPP_INFO_STREAM(m_node->get_logger(),"key" << nkey.k); */
 
-      auto ncoord = tree.keyToCoord(nkey);
+      //auto ncoord = tree.keyToCoord(nkey);
       Node n;
       n.key = nkey;
 
@@ -292,7 +289,7 @@ std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcT
 
     if (tree_node != NULL) {
       // free cell?
-      if (tree_node->getValue() == TreeValue::FREE && tree.keyToCoord(newkey).z() >= min_altitude && tree.keyToCoord(newkey).z() <= max_altitude) {
+      if (tree_node->getValue() == float(TreeValue::FREE) && tree.keyToCoord(newkey).z() >= min_altitude && tree.keyToCoord(newkey).z() <= max_altitude) {
         neighbors.push_back(newkey);
       }
     }
@@ -305,9 +302,9 @@ std::vector<octomap::OcTreeKey> AstarPlanner::getNeighborhood(const octomap::OcT
 
 /* expand() //{ */
 
-octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std::vector<int> &direction, octomap::OcTree &tree) {
+octomap::OcTreeKey AstarPlanner::expand(const octomap::OcTreeKey &key, const std::vector<int> &direction, [[maybe_unused]] octomap::OcTree &tree) {
 
-  auto prev_node = tree.search(key);
+  //auto prev_node = tree.search(key);
 
   octomap::OcTreeKey k;
 
@@ -352,7 +349,7 @@ bool AstarPlanner::freeStraightPath(const octomap::point3d p1, const octomap::po
       return false;
     }
 
-    if (tree_node->getValue() == TreeValue::OCCUPIED) {
+    if (tree_node->getValue() == float(TreeValue::OCCUPIED)) {
       // Path goes through occupied cells
       return false;
     }
@@ -407,7 +404,7 @@ std::vector<octomap::point3d> AstarPlanner::keysToCoords(std::vector<octomap::Oc
 
 /* euclideanDistanceTransform() //{ */
 
-DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &orig_coord) {
+DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octomap::OcTree> tree, [[maybe_unused]] const octomap::point3d &orig_coord) {
 
   double x, y, z;
 
@@ -428,7 +425,7 @@ DynamicEDTOctomap AstarPlanner::euclideanDistanceTransform(std::shared_ptr<octom
 /* createPlanningTree() //{ */
 
 std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::point3d>>> AstarPlanner::createPlanningTree(
-    std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start, double resolution, const octomap::point3d &orig_coord, double radius) {
+    std::shared_ptr<octomap::OcTree> tree, const octomap::point3d &start, double resolution, const octomap::point3d &orig_coord, [[maybe_unused]] double radius) {
 
   /* resample the incoming map to the desired resolution //{ */
 
@@ -449,7 +446,7 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 
   for (octomap::OcTree::leaf_bbx_iterator it = tree->begin_leafs_bbx(p_min, p_max, tree->getTreeDepth()), end = tree->end_leafs_bbx(); it != end; ++it) {
 
-    auto orig_key = it.getKey();
+    //auto orig_key = it.getKey();
 
     const unsigned int old_depth = it.getDepth();
     const unsigned int new_depth = old_depth;
@@ -504,7 +501,7 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
   octomap::point3d current_coords    = start;
   auto             binary_tree_query = binary_tree->search(current_coords);
 
-  if (binary_tree_query != NULL && binary_tree_query->getValue() != TreeValue::FREE) {
+  if (binary_tree_query != NULL && binary_tree_query->getValue() != float(TreeValue::FREE)) {
 
     RCLCPP_WARN(m_node->get_logger(),"start is inside of an inflated obstacle, tunneling out");
 
@@ -566,14 +563,14 @@ std::optional<std::pair<std::shared_ptr<octomap::OcTree>, std::vector<octomap::p
 octomap::point3d AstarPlanner::nearestFreeCoord(const octomap::point3d &p, const octomap::point3d &uav_pos, octomap::OcTree &tree) {
 
   auto query = tree.search(p);
-  if (query != NULL && query->getValue() == TreeValue::FREE) {
+  if (query != NULL && query->getValue() == float(TreeValue::FREE)) {
     return p;
   }
 
   auto neighbors = getNeighborhood(tree.coordToKey(p), tree);
   for (auto &n : neighbors) {
     auto query = tree.search(n);
-    if (query != NULL && query->getValue() == TreeValue::FREE) {
+    if (query != NULL && query->getValue() == float(TreeValue::FREE)) {
       return tree.keyToCoord(n);
     }
   }
@@ -583,7 +580,7 @@ octomap::point3d AstarPlanner::nearestFreeCoord(const octomap::point3d &p, const
   dir_to_uav = (uav_pos - p).normalized() * float(tree.getResolution());
   auto new_p = p + dir_to_uav;
 
-  return nearestFreeCoord(p + dir_to_uav, uav_pos, tree);
+  return nearestFreeCoord(new_p, uav_pos, tree);
 }
 //}
 
@@ -601,7 +598,7 @@ std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<oc
 
   /* padding with additional points if the distances exceed threshold //{ */
 
-  for (int i = 1; i < waypoints_size; i++) {
+  for (unsigned int i = 1; i < waypoints_size; i++) {
     if (max_waypoint_distance > 0 && distEuclidean(padded[i], padded[i - 1]) > max_waypoint_distance) {
       auto direction = (padded[i] - padded[i - 1]).normalized() * float(max_waypoint_distance);
       padded.insert(padded.begin() + i, padded[i - 1] + direction);
@@ -622,7 +619,7 @@ std::vector<octomap::point3d> AstarPlanner::postprocessPath(const std::vector<oc
 
   filtered.push_back(padded.front());
 
-  int i = 2;
+  unsigned int i = 2;
 
   while (i < padded.size()) {
 
@@ -678,14 +675,14 @@ void AstarPlanner::visualizeTreeCubes(octomap::OcTree &tree, bool show_unoccupie
     Eigen::Quaterniond        orientation = Eigen::Quaterniond::Identity();
     mrs_lib::geometry::Cuboid c(center, size, orientation);
 
-    if (it->getValue() == TreeValue::OCCUPIED) {
+    if (it->getValue() == float(TreeValue::OCCUPIED)) {
       /* bv->addCuboid(c, 0.1, 0.5, 0.1, 0.2, true); */
       /* bv->addCuboid(c, 0, 0, 0, 0.3, false); */
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 0.8, true); */
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 1.0, false); */
     }
 
-    if (show_unoccupied && it->getValue() == TreeValue::FREE) {
+    if (show_unoccupied && it->getValue() == float(TreeValue::FREE)) {
       /* bv->addCuboid(c, 0.5, 0.5, 0.5, 0.5, true); */
     }
   }
@@ -716,12 +713,12 @@ void AstarPlanner::visualizeTreePoints(octomap::OcTree &tree, bool show_unoccupi
 
     Eigen::Vector3d p(it.getX(), it.getY(), it.getZ());
 
-    if (it->getValue() == TreeValue::OCCUPIED) {
+    if (it->getValue() == float(TreeValue::OCCUPIED)) {
       bv->addPoint(p, 0.1, 0.1, 0.1, 1.0);
       /* bv->addCuboid(c, 0.1, 0.1, 0.1, 1.0, false); */
     }
 
-    if (show_unoccupied && it->getValue() == TreeValue::FREE) {
+    if (show_unoccupied && it->getValue() == float(TreeValue::FREE)) {
       bv->addPoint(p, 0.9, 0.9, 0.9, 0.8);
       /* bv->addCuboid(c, 0.8, 0.8, 0.8, 1.0, false); */
     }
@@ -760,7 +757,7 @@ octomap::point3d AstarPlanner::generateTemporaryGoal(const octomap::point3d &sta
 
   for (auto it = tree.begin_leafs(); it != tree.end_leafs(); it++) {
 
-    if (it->getValue() == TreeValue::OCCUPIED) {
+    if (it->getValue() == float(TreeValue::OCCUPIED)) {
       continue;
     }
 
@@ -792,7 +789,7 @@ octomap::point3d AstarPlanner::generateTemporaryGoal(const octomap::point3d &sta
 
   for (auto &k : ray) {
     auto coords = tree.keyToCoord(k);
-    if (tree.search(coords) != NULL && tree.search(coords)->getValue() == TreeValue::FREE) {
+    if (tree.search(coords) != NULL && tree.search(coords)->getValue() == float(TreeValue::FREE)) {
       temp_goal = coords;
     }
   }

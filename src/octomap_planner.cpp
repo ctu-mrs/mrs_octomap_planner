@@ -1398,7 +1398,7 @@ void OctomapPlanner::timerMain() {
         if (_use_subt_planner_) {
 
           // | -------------------- MRS SubT planner -------------------- |
-          mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner(node_, "MrsOctomapPlanner SubT Astar Planner");  //to change
+          mrs_subt_planning::AstarPlanner subt_planner = mrs_subt_planning::AstarPlanner(node_);
 
           subt_planner.initialize(true, time_for_planning_s - _subt_processing_timeout_, _subt_processing_timeout_, safe_obstacle_distance, _subt_clearing_dist_,
                                   _min_altitude_, max_altitude, _subt_debug_info_, bv_planner_, false);
@@ -1572,9 +1572,10 @@ void OctomapPlanner::timerMain() {
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Calling path service with timestamp = %.3f at time %.3f.", path_stamp.seconds(), clock_->now().seconds());
       rclcpp::Time tg_start = clock_->now();
 
+      /*
       mrs_msgs::srv::GetPathSrv srv_get_path;
 
-      /*srv_get_path.path.header.frame_id = octree_frame_;
+      srv_get_path.path.header.frame_id = octree_frame_;
       srv_get_path.path.header.stamp    = path_stamp;
       srv_get_path.path.fly_now         = false;
       srv_get_path.path.relax_heading   = _trajectory_generation_relax_heading_;
@@ -1604,12 +1605,12 @@ void OctomapPlanner::timerMain() {
 
       std::vector<double> segment_times = estimateSegmentTimes(eig_waypoints, false);
 
-      double cum_time = 0;
-      double cum_dist = 0;
-      double dx, dy;
-      int    end_idx;
+      double       cum_time = 0;
+      double       cum_dist = 0;
+      double       dx = 0, dy = 0;
+      unsigned int end_idx;
 
-      for (auto i = 0; i < waypoints.first.size(); i++) {
+      for (unsigned int i = 0; i < waypoints.first.size(); i++) {
 
         mrs_msgs::msg::Reference ref;
         ref.position.x = waypoints.first[i].x();
@@ -1730,7 +1731,7 @@ void OctomapPlanner::timerMain() {
 
       // check if the trajectory is safe
       bool ray_is_cool = true;
-      for (int i = 0; i < trajectory.points.size() - 1; i++) {
+      for (unsigned int i = 0; i < trajectory.points.size() - 1; i++) {
         // check for obstacles between the path waypoints
         octomap::point3d point1(trajectory.points[i].position.x, trajectory.points[i].position.y, trajectory.points[i].position.z);
         octomap::point3d point2(trajectory.points[i + 1].position.x, trajectory.points[i + 1].position.y, trajectory.points[i + 1].position.z);
@@ -1770,7 +1771,7 @@ void OctomapPlanner::timerMain() {
 
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: publishing trajectory reference");
 
-      mrs_msgs::srv::TrajectoryReferenceSrv srv_trajectory_reference;
+      //mrs_msgs::srv::TrajectoryReferenceSrv srv_trajectory_reference;
       std::shared_ptr<mrs_msgs::srv::TrajectoryReferenceSrv::Request> req_traj = std::make_shared<mrs_msgs::srv::TrajectoryReferenceSrv::Request>();
       req_traj->trajectory         = res_path.value()->trajectory;
       req_traj->trajectory.fly_now = true;
@@ -1778,8 +1779,6 @@ void OctomapPlanner::timerMain() {
       // set id of trajectory
       path_id_++;
       req_traj->trajectory.input_id = path_id_;
-
-      int cb = 0;
 
       RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: Calling trajectory service with timestamp = %d at time %.3f.",
                req_traj->trajectory.header.stamp.sec, clock_->now().seconds());
@@ -1847,8 +1846,8 @@ void OctomapPlanner::timerMain() {
         break;
       }
 
-      if ((clock_->now().seconds() - (time_last_plan_.seconds() + _replan_after_)) > 0,0) {
-
+      // check if we need to replan ??
+      if ((clock_->now().seconds() - (time_last_plan_.seconds() + _replan_after_)) > 0.0) {
 
         RCLCPP_INFO(node_->get_logger(),"[MrsOctomapPlanner]: triggering replanning");
 
@@ -1933,7 +1932,7 @@ void OctomapPlanner::timerFutureCheck() {
     trajectory.use_heading     = _trajectory_generation_use_heading_;
     trajectory.dt              = 0.2;
 
-    for (int i = 1; i < prediction.position.size(); i++) {
+    for (unsigned int i = 1; i < prediction.position.size(); i++) {
 
       mrs_msgs::msg::ReferenceStamped pose;
       pose.header               = prediction.header;
@@ -1958,7 +1957,7 @@ void OctomapPlanner::timerFutureCheck() {
     // for each point, do raycasting from current waypoint to the point
     // check for collisions
     // if something is detected, crop the trajectory
-    for (int i = 0; i < trajectory.points.size(); i++) {
+    for (int i = 0; i < int(trajectory.points.size()); i++) {
 
       octomap::point3d point1(trajectory.points[i].position.x, trajectory.points[i].position.y, trajectory.points[i].position.z);
       double           angle_step          = 2 * M_PI / _collision_check_point_count_;
@@ -1979,14 +1978,13 @@ void OctomapPlanner::timerFutureCheck() {
               /* RCLCPP_WARN(node_->get_logger(),"[MrsOctomapPlanner]: Detected OCCUPIED space along the planned trajectory!"); */
               // shorten the trajectory
               int orig_traj_size = int(trajectory.points.size());
-              for (int j = int(trajectory.points.size()) - 1; j >= i - 1 && j > _min_allowed_trajectory_points_after_crop_; j--) {
+              for (int j = orig_traj_size - 1; j >= i - 1 && j > _min_allowed_trajectory_points_after_crop_; j--) {
                 trajectory.points.pop_back();
               }
 
               RCLCPP_WARN(node_->get_logger(),"[MrsOctomapPlanner]: Detected OCCUPIED space along the planned trajectory! Cropped the trajectory to %d from %d points.",
                        int(trajectory.points.size()), orig_traj_size);
 
-              mrs_msgs::srv::TrajectoryReferenceSrv srv_trajectory_reference;
               std::shared_ptr<mrs_msgs::srv::TrajectoryReferenceSrv::Request> req_traj_ref =
                   std::make_shared<mrs_msgs::srv::TrajectoryReferenceSrv::Request>();
               req_traj_ref->trajectory = trajectory;
@@ -2024,7 +2022,7 @@ void OctomapPlanner::timerFutureCheck() {
     }
 
     // check if the trajectory is safe
-    for (int i = 0; i < trajectory.points.size() - 1; i++) {
+    for (unsigned int i = 0; i < trajectory.points.size() - 1; i++) {
 
       octomap::point3d point1(trajectory.points[i].position.x, trajectory.points[i].position.y, trajectory.points[i].position.z);
       octomap::point3d point2(trajectory.points[i + 1].position.x, trajectory.points[i + 1].position.y, trajectory.points[i + 1].position.z);
@@ -2113,7 +2111,7 @@ void OctomapPlanner::timerPublishVirtualObstacles() {
 
     ma.markers.reserve(virtual_obstacles_.size());
 
-    for (int i = 0; i < virtual_obstacles_.size(); i++) {
+    for (unsigned int i = 0; i < virtual_obstacles_.size(); i++) {
       auto& obst = virtual_obstacles_.at(i);
 
       obst.vis_marker.header.stamp = clock_->now();
@@ -2226,7 +2224,7 @@ std::optional<mrs_msgs::msg::ReferenceStamped> OctomapPlanner::getInitialConditi
 
   rclcpp::Time future_time_stamp;
 
-  for (int i = 0; i < prediction_full_state.stamps.size(); i++) {
+  for (unsigned int i = 0; i < prediction_full_state.stamps.size(); i++) {
 
     if ((prediction_full_state.stamps[i].sec - des_time.seconds()) > 0) {
       orig_reference.reference.position.x = prediction_full_state.position[i].x;
@@ -2302,7 +2300,7 @@ std::vector<double> OctomapPlanner::estimateSegmentTimes(const std::vector<Eigen
 
   size_t check = vertices.size() - 1;
   // for each vertex in the path
-  for (size_t i = 0; i < vertices.size() - 1; i++) {
+  for (size_t i = 0; i < check; i++) {
 
     Eigen::Vector3d start     = vertices[i].head(3);
     Eigen::Vector3d end       = vertices[i + 1].head(3);
@@ -2593,7 +2591,7 @@ void OctomapPlanner::addVirtualObstaclesToOctree(const std::shared_ptr<OcTree_t>
     const auto& p0 = obst.vertices[0];
     const auto& p1 = obst.vertices[1];
     const auto& p2 = obst.vertices[2];
-    const auto& p3 = obst.vertices[3];
+    //const auto& p3 = obst.vertices[3];
     const auto& p4 = obst.vertices[4];
     const auto& u  = obst.uvw[0];
     const auto& v  = obst.uvw[1];
@@ -2618,6 +2616,5 @@ void OctomapPlanner::addVirtualObstaclesToOctree(const std::shared_ptr<OcTree_t>
 
 }  // namespace mrs_octomap_planner
 
-
 #include <rclcpp_components/register_node_macro.hpp>
-  RCLCPP_COMPONENTS_REGISTER_NODE(mrs_octomap_planner::OctomapPlanner)
+RCLCPP_COMPONENTS_REGISTER_NODE(mrs_octomap_planner::OctomapPlanner)
