@@ -26,9 +26,6 @@
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>dynamic_edt_3d</depend>
-
-  <exec_depend>liboctomap</exec_depend>
-  <exec_depend>libeigen3-dev</exec_depend>
   
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
