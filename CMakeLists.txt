@@ -43,14 +43,12 @@ set(DEPENDENCIES
   mrs_lib
   mrs_msgs
   mrs_modules_msgs
-  # mrs_octomap_tools
   mrs_subt_planning_lib
   nav_msgs
   octomap_msgs
   octomap_ros
   std_msgs
   geometry_msgs
-  dynamicEDT3D
 )
 
 set(LIBRARIES
@@ -66,39 +64,45 @@ endforeach()
 ## |                           Compile                          |
 ## --------------------------------------------------------------
 
-add_library(MrsOctomapPlanner_OctomapPlanner SHARED
-  src/octomap_planner.cpp
-  src/astar_planner.cpp
-)
+function(add_planner_node class source)
+  add_library(MrsOctomapPlanner_${class} SHARED
+    ${source}
+    src/astar_planner.cpp
+  )
 
-ament_target_dependencies(MrsOctomapPlanner_OctomapPlanner
-  ${DEPENDENCIES}
-)
+  target_link_libraries(MrsOctomapPlanner_${class}
+    dynamicedt3d
+  )
 
-rclcpp_components_register_nodes(MrsOctomapPlanner_OctomapPlanner PLUGIN "mrs_octomap_planner::OctomapPlanner" EXECUTABLE MrsOctomapPlanner_OctomapPlanner)
+  ament_target_dependencies(MrsOctomapPlanner_${class}
+    ${DEPENDENCIES}
+  )
 
-target_compile_definitions(MrsOctomapPlanner_OctomapPlanner PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
-
-add_library(MrsOctomapPlanner_MinimalOctomapPlanner SHARED
-  src/minimal_octomap_planner.cpp
-  src/astar_planner.cpp
-)
-
-ament_target_dependencies(MrsOctomapPlanner_MinimalOctomapPlanner
-  ${DEPENDENCIES}
-)
-
-rclcpp_components_register_nodes(MrsOctomapPlanner_MinimalOctomapPlanner PLUGIN "mrs_octomap_planner::MinimalOctomapPlanner" EXECUTABLE MrsOctomapPlanner_OctomapPlanner)
-
-target_compile_definitions(MrsOctomapPlanner_MinimalOctomapPlanner PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
-
-foreach(library IN LISTS LIBRARIES)
-  target_include_directories(${library}
+  target_include_directories(MrsOctomapPlanner_${class}
     PUBLIC
       $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
       $<INSTALL_INTERFACE:include>
   )
-endforeach()
+
+  target_compile_definitions(MrsOctomapPlanner_${class}
+    PRIVATE USE_ROS_TIMER=$<BOOL:${USE_ROS_TIMER}>
+  )
+
+  rclcpp_components_register_nodes(
+    MrsOctomapPlanner_${class}
+    PLUGIN "mrs_octomap_planner::${class}"
+  )
+endfunction()
+
+add_planner_node(
+  OctomapPlanner
+  src/octomap_planner.cpp
+)
+
+add_planner_node(
+  MinimalOctomapPlanner
+  src/minimal_octomap_planner.cpp
+)
 
 ## --------------------------------------------------------------
 ## |                           install                          |
@@ -122,10 +126,6 @@ install(
 install(
   DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
-)
-
-ament_export_include_directories(
-  include
 )
 
 ament_export_targets(

@@ -70,11 +70,10 @@ namespace mrs_octomap_planner
     node_ = this->shared_from_this();
     clock_ = node_->get_clock();
 
-    // rclcpp::Time::waitForValid();
-
     RCLCPP_INFO(this->get_logger(), "[MrsMinimalOctomapPlanner]: initializing");
 
-    mrs_lib::ParamLoader param_loader(this->shared_from_this(), "MrsMinimalOctomapPlanner");
+    mrs_lib::ParamLoader param_loader(node_, "MrsMinimalOctomapPlanner");
+    param_loader.addYamlFileFromParam("config");
 
     param_loader.loadParam("safe_obstacle_distance", _safe_obstacle_distance_);
     param_loader.loadParam("distance_penalty", _distance_penalty_);

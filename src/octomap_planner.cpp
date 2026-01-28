@@ -144,7 +144,7 @@ namespace mrs_octomap_planner
     double _subt_processing_path_length_;
     double _subt_processing_timeout_;
     int _subt_shortening_window_size_;
-    int _subt_shortening_distance_;
+    double _subt_shortening_distance_;
     bool _subt_remove_obsolete_points_;
     double _subt_obsolete_points_tolerance_;
     double _distance_transform_distance_;
@@ -278,9 +278,9 @@ namespace mrs_octomap_planner
     std::mutex mutex_diagnostics_;
 
     // timeouts
-    // void timeoutOctomap(const std::string& topic, const rclcpp::Time& last_msg);
-    // void timeoutTrackerCmd(const std::string& topic, const rclcpp::Time& last_msg);
-    // void timeoutControlManagerDiag(const std::string& topic, const rclcpp::Time& last_msg);
+    void timeoutOctomap(const std::string& topic, const rclcpp::Time& last_msg);
+    void timeoutTrackerCmd(const std::string& topic, const rclcpp::Time& last_msg);
+    void timeoutControlManagerDiag(const std::string& topic, const rclcpp::Time& last_msg);
 
     // transformer
     std::unique_ptr<mrs_lib::Transformer> transformer_;
@@ -359,7 +359,6 @@ namespace mrs_octomap_planner
 
     RCLCPP_INFO(node_->get_logger(), "initializing");
 
-
     cbkgrp_subs_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
     cbkgrp_timers_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
@@ -378,16 +377,8 @@ namespace mrs_octomap_planner
       param_loader.addYamlFile(custom_config_path);
     }
 
-    // load other configs
-
-    std::vector<std::string> config_files;
-    param_loader.loadParam("config_files", config_files);
-
-    for (auto config_file : config_files)
-    {
-      RCLCPP_INFO(node_->get_logger(), "loading config file '%s'", config_file.c_str());
-      param_loader.addYamlFile(config_file);
-    }
+    // load main config
+    param_loader.addYamlFileFromParam("config");
 
     param_loader.loadParam("uav_name", _uav_name_);
     param_loader.loadParam("main_timer/rate", _rate_main_timer_);
@@ -451,7 +442,6 @@ namespace mrs_octomap_planner
     param_loader.loadParam("restart_planner_on_deadlock", _restart_planner_on_deadlock_);
     param_loader.loadParam("planner_deadlock_timeout_factor", _planner_deadlock_timeout_factor);
 
-
     if (!param_loader.loadedSuccessfully())
     {
       RCLCPP_ERROR(node_->get_logger(), "Could not load all non-optional parameters. Shutting down.");
@@ -510,9 +500,13 @@ namespace mrs_octomap_planner
     shopts.autostart = true;
 
 
-    sh_tracker_cmd_ = mrs_lib::SubscriberHandler<mrs_msgs::msg::TrackerCommand>(shopts, "~/tracker_cmd_in");
-    sh_octomap_ = mrs_lib::SubscriberHandler<octomap_msgs::msg::Octomap>(shopts, "~/octomap_in");
-    sh_control_manager_diag_ = mrs_lib::SubscriberHandler<mrs_msgs::msg::ControlManagerDiagnostics>(shopts, "~/control_manager_diag_in");
+    sh_tracker_cmd_ = mrs_lib::SubscriberHandler<mrs_msgs::msg::TrackerCommand>(shopts, "~/tracker_cmd_in", rclcpp::Duration::from_seconds(3.0),
+                                                                                &OctomapPlanner::timeoutTrackerCmd, this);
+    sh_octomap_ = mrs_lib::SubscriberHandler<octomap_msgs::msg::Octomap>(shopts, "~/octomap_in", rclcpp::Duration::from_seconds(5.0),
+                                                                         &OctomapPlanner::timeoutOctomap, this, &OctomapPlanner::callbackOctomap, this);
+
+    sh_control_manager_diag_ = mrs_lib::SubscriberHandler<mrs_msgs::msg::ControlManagerDiagnostics>(
+        shopts, "~/control_manager_diag_in", rclcpp::Duration::from_seconds(3.0), &OctomapPlanner::timeoutControlManagerDiag, this);
     sh_constraints_ = mrs_lib::SubscriberHandler<mrs_msgs::msg::DynamicsConstraints>(shopts, "~/constraints_in");
 
     // | --------------------- service clients -------------------- |
@@ -606,27 +600,31 @@ namespace mrs_octomap_planner
 
   /* timeoutTrackerCmd() //{ */
 
-  // void OctomapPlanner::timeoutTrackerCmd(const std::string& topic, const rclcpp::Time& last_msg) {
+  void OctomapPlanner::timeoutTrackerCmd([[maybe_unused]] const std::string& topic, [[maybe_unused]] const rclcpp::Time& last_msg)
+  {
 
-  //   if (!is_initialized_) {
-  //     return;
-  //   }
+    if (!is_initialized_)
+    {
+      return;
+    }
 
-  //   if (!sh_tracker_cmd_.hasMsg()) {
-  //     return;
-  //   }
+    if (!sh_tracker_cmd_.hasMsg())
+    {
+      return;
+    }
 
-  //   if (state_ != STATE_IDLE) {
+    if (state_ != STATE_IDLE)
+    {
 
-  //     RCLCPP_WARN_THROTTLE(node_->get_logger(),*clock_,1000, "[MrsOctomapPlanner]: position cmd timeouted!");
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 1000, "[MrsOctomapPlanner]: position cmd timeouted!");
 
-  //     ready_to_plan_ = false;
+      ready_to_plan_ = false;
 
-  //     changeState(STATE_IDLE);
+      changeState(STATE_IDLE);
 
-  //     hover();
-  //   }
-  // }
+      hover();
+    }
+  }
 
   //}
 
@@ -686,85 +684,95 @@ namespace mrs_octomap_planner
   //}
 
   /* timeoutOctomap() //{ */
-  // void OctomapPlanner::timeoutOctomap(const std::string& topic, const rclcpp::Time& last_msg) {
+  void OctomapPlanner::timeoutOctomap([[maybe_unused]] const std::string& topic, [[maybe_unused]] const rclcpp::Time& last_msg)
+  {
 
+    if (!is_initialized_)
+    {
+      return;
+    }
 
-  //   if (!is_initialized_) {
-  //     return;
-  //   }
+    if (!sh_octomap_.hasMsg())
+    {
+      return;
+    }
 
-  //   if (!sh_octomap_.hasMsg()) {
-  //     return;
-  //   }
+    if (state_ != STATE_IDLE)
+    {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 1000, "[MrsOctomapPlanner]: octomap timeouted!");
 
-  //   if (state_ != STATE_IDLE) {
+      ready_to_plan_ = false;
 
-  //     RCLCPP_WARN_THROTTLE(node_->get_logger(),*clock_,1000, "[MrsOctomapPlanner]: octomap timeouted!");
+      changeState(STATE_IDLE);
 
-  //     ready_to_plan_ = false;
-
-  //     changeState(STATE_IDLE);
-
-  //     hover();
-  //   }
-  // }
+      hover();
+    }
+  }
 
   //}
 
   /* timeoutControlManagerDiag() //{ */
 
-  // void OctomapPlanner::timeoutControlManagerDiag(const std::string& topic, const rclcpp::Time& last_msg) {
+  void OctomapPlanner::timeoutControlManagerDiag([[maybe_unused]] const std::string& topic, [[maybe_unused]] const rclcpp::Time& last_msg)
+  {
 
-  //   if (!is_initialized_) {
-  //     return;
-  //   }
+    if (!is_initialized_)
+    {
+      return;
+    }
 
-  //   if (!sh_control_manager_diag_.hasMsg()) {
-  //     return;
-  //   }
+    if (!sh_control_manager_diag_.hasMsg())
+    {
+      return;
+    }
 
-  //   if (state_ != STATE_IDLE) {
+    if (state_ != STATE_IDLE)
+    {
 
-  //     RCLCPP_WARN_THROTTLE(node_->get_logger(),*clock_,1000, "[MrsOctomapPlanner]: Control manager diag timeouted!");
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 1000, "[MrsOctomapPlanner]: Control manager diag timeouted!");
 
-  //     ready_to_plan_ = false;
+      ready_to_plan_ = false;
 
-  //     changeState(STATE_IDLE);
+      changeState(STATE_IDLE);
 
-  //     hover();
-  //   }
-  // }
+      hover();
+    }
+  }
 
   //}
 
   /* callbackStop() //{ */
-  // void OctomapPlanner::callbackStop(const std::shared_ptr<std_srvs::srv::Trigger::Request> req,std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+  void OctomapPlanner::callbackStop([[maybe_unused]] const std::shared_ptr<std_srvs::srv::Trigger::Request> req,
+                                    std::shared_ptr<std_srvs::srv::Trigger::Response> res)
+  {
 
-  //   if (!is_initialized_) {
-  //     return;
-  //   }
+    if (!is_initialized_)
+    {
+      return;
+    }
 
-  //   if (!ready_to_plan_) {
-  //     std::stringstream ss;
-  //     ss << "not ready to plan, missing data";
+    if (!ready_to_plan_)
+    {
+      std::stringstream ss;
+      ss << "not ready to plan, missing data";
 
-  //     RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *clock_, 500, "[MrsOctomapPlanner]: " << ss.str());
+      RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *clock_, 500, "[MrsOctomapPlanner]: " << ss.str());
 
-  //     res->success = false;
-  //     res->message = ss.str();
-  //     return;
-  //   }
-  //   changeState(STATE_IDLE);
-  //   hover();
+      res->success = false;
+      res->message = ss.str();
+      return;
+    }
 
-  //   std::stringstream ss;
-  //   ss << "Stopping by request";
+    changeState(STATE_IDLE);
+    hover();
 
-  //   RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *clock_, 500, "[MrsOctomapPlanner]: " << ss.str());
-  //   res->success = true;
-  //   res->message = ss.str();
-  //   return;
-  // }
+    std::stringstream ss;
+    ss << "Stopping by request";
+
+    RCLCPP_ERROR_STREAM_THROTTLE(node_->get_logger(), *clock_, 500, "[MrsOctomapPlanner]: " << ss.str());
+    res->success = true;
+    res->message = ss.str();
+  }
 
   //}
 
@@ -842,7 +850,6 @@ namespace mrs_octomap_planner
 
     res->success = true;
     res->message = "goal set";
-    return;
   }
 
   //}
@@ -917,7 +924,6 @@ namespace mrs_octomap_planner
 
     res->success = true;
     res->message = "reference set";
-    return;
   }
 
   //}
@@ -948,7 +954,6 @@ namespace mrs_octomap_planner
 
     res->message = res->success ? "Planner set successfully." : "Invalid type of planner requested.";
     RCLCPP_INFO(node_->get_logger(), "[MrsOctomapPlanner]: %s", res->message.c_str());
-    return;
   }
 
   //}
@@ -988,8 +993,6 @@ namespace mrs_octomap_planner
     res->message = res->success ? "safety distance set" : "safety distance not set";
 
     RCLCPP_INFO(node_->get_logger(), "[MrsOctomapPlanner]: %s", res->message.c_str());
-
-    return;
   }
 
   //}
@@ -1016,8 +1019,6 @@ namespace mrs_octomap_planner
     res->message = "max altitude set";
 
     RCLCPP_INFO(node_->get_logger(), "[MrsOctomapPlanner]: %s", res->message.c_str());
-
-    return;
   }
 
   //}
@@ -1167,8 +1168,6 @@ namespace mrs_octomap_planner
 
     res->success = {true};
     res->message = "obstacle added";
-
-    return;
   }
 
   //}
@@ -1205,7 +1204,6 @@ namespace mrs_octomap_planner
     RCLCPP_INFO_STREAM(node_->get_logger(), "[MrsOctomapPlanner]: " << ss.str());
     res->success = true;
     res->message = ss.str();
-    return;
   }
 
   //}
