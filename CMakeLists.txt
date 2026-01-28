@@ -49,6 +49,7 @@ set(DEPENDENCIES
   octomap_ros
   std_msgs
   geometry_msgs
+  dynamicEDT3D
 )
 
 set(LIBRARIES
