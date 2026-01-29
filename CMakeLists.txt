@@ -65,44 +65,49 @@ endforeach()
 ## |                           Compile                          |
 ## --------------------------------------------------------------
 
-function(add_planner_node class source)
-  add_library(MrsOctomapPlanner_${class} SHARED
+function(add_mrs_library target source)
+  add_library(${target} SHARED
     ${source}
     src/astar_planner.cpp
   )
 
-  target_link_libraries(MrsOctomapPlanner_${class}
+  target_link_libraries(${target}
     dynamicedt3d
   )
 
-  ament_target_dependencies(MrsOctomapPlanner_${class}
+  ament_target_dependencies(${target}
     ${DEPENDENCIES}
   )
 
-  target_include_directories(MrsOctomapPlanner_${class}
+  target_include_directories(${target}
     PUBLIC
       $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
       $<INSTALL_INTERFACE:include>
   )
 
-  target_compile_definitions(MrsOctomapPlanner_${class}
+  target_compile_definitions(${target}
     PRIVATE USE_ROS_TIMER=$<BOOL:${USE_ROS_TIMER}>
-  )
-
-  rclcpp_components_register_nodes(
-    MrsOctomapPlanner_${class}
-    PLUGIN "mrs_octomap_planner::${class}"
   )
 endfunction()
 
-add_planner_node(
-  OctomapPlanner
+add_mrs_library(
+  MrsOctomapPlanner_OctomapPlanner
   src/octomap_planner.cpp
 )
 
-add_planner_node(
-  MinimalOctomapPlanner
+rclcpp_components_register_nodes(
+  MrsOctomapPlanner_OctomapPlanner
+  PLUGIN "mrs_octomap_planner::OctomapPlanner"
+)
+
+add_mrs_library(
+  MrsOctomapPlanner_MinimalOctomapPlanner
   src/minimal_octomap_planner.cpp
+)
+
+rclcpp_components_register_nodes(
+  MrsOctomapPlanner_MinimalOctomapPlanner
+  PLUGIN "mrs_octomap_planner::MinimalOctomapPlanner"
 )
 
 ## --------------------------------------------------------------
