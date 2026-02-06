@@ -343,8 +343,6 @@ namespace mrs_octomap_planner
 
   //}
 
-  /* OctomapServer() //{ */
-
   OctomapPlanner::OctomapPlanner(const rclcpp::NodeOptions& options) : mrs_lib::Node("octomap_planner", options)
   {
     initialize();
@@ -582,9 +580,6 @@ namespace mrs_octomap_planner
         "~/remove_virtual_obstacles_in", std::bind(&OctomapPlanner::callbackRemoveVirtualObstacles, this, std::placeholders::_1, std::placeholders::_2));
 
     // | --------------------- finish the init -------------------- |
-
-
-    /* scope timer logger //{ */
 
     const std::string scope_timer_log_filename = param_loader.loadParam2("scope_timer/log_filename", std::string(""));
     scope_timer_logger_ = std::make_shared<mrs_lib::ScopeTimerLogger>(node_, scope_timer_log_filename, _scope_timer_enabled_);
@@ -1476,7 +1471,7 @@ namespace mrs_octomap_planner
           {
             std::scoped_lock lock(mutex_planner_time_flag_);
 
-            planner_time_flag_ = rclcpp::Time(0);
+            planner_time_flag_ = rclcpp::Time(0, 0, clock_->get_clock_type());
           }
 
         } else
@@ -1499,7 +1494,7 @@ namespace mrs_octomap_planner
           {
             std::scoped_lock lock(mutex_planner_time_flag_);
 
-            planner_time_flag_ = rclcpp::Time(0);
+            planner_time_flag_ = rclcpp::Time(0, 0, clock_->get_clock_type());
           }
         }
       }
@@ -1630,9 +1625,9 @@ namespace mrs_octomap_planner
 
       rclcpp::Time path_stamp = initial_condition.value().header.stamp;
 
-      if (clock_->now() > path_stamp || !control_manager_diag->tracker_status.have_goal)
+      if (clock_->now().seconds() > path_stamp.seconds() || !control_manager_diag->tracker_status.have_goal)
       {
-        path_stamp = rclcpp::Time(0);
+        path_stamp = rclcpp::Time(0, 0, clock_->get_clock_type());
       }
 
       RCLCPP_INFO(node_->get_logger(), "[MrsOctomapPlanner]: Calling path service with timestamp = %.3f at time %.3f.", path_stamp.seconds(),
@@ -2229,7 +2224,7 @@ namespace mrs_octomap_planner
 
     auto planner_time_flag = mrs_lib::get_mutexed(mutex_planner_time_flag_, planner_time_flag_);
 
-    if (_restart_planner_on_deadlock_ && planner_time_flag != rclcpp::Time(0))
+    if (_restart_planner_on_deadlock_ && planner_time_flag.seconds() > 0)
     {
       if ((clock_->now() - planner_time_flag).seconds() > planner_deadlock_timeout_)
       {
@@ -2399,6 +2394,7 @@ namespace mrs_octomap_planner
         orig_reference.reference.position.z = prediction_full_state.position[i].z;
         orig_reference.reference.heading = prediction_full_state.heading[i];
         future_time_stamp = prediction_full_state.stamps[i];
+
         break;
       }
     }

@@ -2,6 +2,7 @@
 
 import os
 from ament_index_python.packages import get_package_share_directory
+import sys
 
 import launch
 from launch.actions import DeclareLaunchArgument
@@ -129,7 +130,7 @@ def generate_launch_description():
         remappings=[
             # topics in
             ('~/tracker_cmd_in', "control_manager/tracker_cmd"),
-            ('~/octomap_in', "octomap_server/octomap_local_full"),
+            ('~/octomap_in', "octomap_server/octomap_local_binary"),
             ('~/control_manager_diag_in', "control_manager/diagnostics"),
             ('~/constraints_in', "control_manager/current_constraints"),
             # topics out
