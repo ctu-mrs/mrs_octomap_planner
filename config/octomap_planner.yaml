@@ -5,14 +5,18 @@ distance_transform:
   submap_distance: 20.0 # [m] from the UAV into all directions
 
 main_timer:
-  rate: 20.0 # [Hz]
+  rate: 3.0 # [Hz]
 
 diagnostics_timer:
   rate: 10.0 # [Hz]
 
+# future collision check
+future_check_timer: # timer for collision checking with most recent map 
+  rate: 10.0 # [Hz]
+
 safe_obstacle_distance: 
   default: 1.0 # [m]
-  min: 0.6 # [m]
+  min: 1.0 # [m]
   max: 5.0 # [m]
 
 goal_reached_dist: 0.6 # [m] distance from current position within which the goal is considered to be reached 
@@ -34,10 +38,6 @@ replan_after: 1.0 # [s] time from last planning after which replanning is trigge
 
 timeout_threshold: 2.0 # [s] time after which A* planning is aborted and returns path to the node with the so far lowest cost   
 time_for_trajectory_generator: 0.6 # [s]
-
-# future collision check
-future_check_timer: # timer for collision checking with most recent map 
-  rate: 10.0 # [Hz]
 
 collision_check_point_count: 8 # [-] number of points used for future collision check of UAV trajectory, uniformly sampled on a 2D circle around each trajectory point
 min_allowed_trajectory_points_after_crop: 10 # [-] when future trajectory approaches an obstacle, it can be cropped up to this number of points

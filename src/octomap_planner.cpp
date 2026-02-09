@@ -372,7 +372,12 @@ namespace mrs_octomap_planner
     if (custom_config_path != "")
     {
       RCLCPP_INFO(node_->get_logger(), "loading custom config '%s", custom_config_path.c_str());
-      param_loader.addYamlFile(custom_config_path);
+
+      if (!param_loader.addYamlFile(custom_config_path)) {
+        RCLCPP_ERROR(node_->get_logger(), "failed to load custom config");
+        rclcpp::shutdown();
+        exit(1);
+      }
     }
 
     // load main config
@@ -444,6 +449,7 @@ namespace mrs_octomap_planner
     {
       RCLCPP_ERROR(node_->get_logger(), "Could not load all non-optional parameters. Shutting down.");
       rclcpp::shutdown();
+      exit(1);
     }
 
     if (_goal_reached_dist_ < 2 * planning_tree_resolution_)
