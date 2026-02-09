@@ -541,6 +541,11 @@ namespace mrs_octomap_planner
     timer_opts_start.callback_group = cbkgrp_timers_;
     timer_opts_start.autostart = true;
 
+    #if USE_ROS_TIMER == 1
+      RCLCPP_ERROR(node_->get_logger(), "running ROS timer, beware!");
+      rclcpp::shutdown();
+      exit(1);
+    #endif
 
     callback_timer_main_ = std::bind(&OctomapPlanner::timerMain, this);
     timer_main_ = std::make_shared<TimerType>(timer_opts_start, rclcpp::Rate(_rate_main_timer_, clock_), callback_timer_main_);
@@ -649,6 +654,7 @@ namespace mrs_octomap_planner
       /* copyLocalMap(*octree_local, octree_global_); */
 
       octree_ = octree_local.value();
+
       {
         std::scoped_lock lock(mutex_virtual_obstacles_);
         addVirtualObstaclesToOctree(octree_);
@@ -1239,6 +1245,7 @@ namespace mrs_octomap_planner
     RCLCPP_INFO_ONCE(node_->get_logger(), "[MrsOctomapPlanner]: main timer spinning");
 
     const auto user_goal = mrs_lib::get_mutexed(mutex_user_goal_, user_goal_);
+
     if (new_user_goal_received_)
     {
       first_planning_for_current_goal_ = true;
@@ -1280,6 +1287,8 @@ namespace mrs_octomap_planner
 
     case STATE_IDLE: {
 
+      RCLCPP_INFO(node_->get_logger(), "idling");
+
       {
         std::scoped_lock lock(mutex_diagnostics_);
 
@@ -1294,6 +1303,8 @@ namespace mrs_octomap_planner
       /* STATE_PLANNING //{ */
 
     case STATE_PLANNING: {
+
+      RCLCPP_INFO_THROTTLE(node_->get_logger(), *clock_, 1000, "planning");
 
       mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer(node_, "timerMain - STATE_PLANNING", scope_timer_logger_, _scope_timer_enabled_);
 
@@ -1905,6 +1916,8 @@ namespace mrs_octomap_planner
 
     case STATE_MOVING: {
 
+      RCLCPP_INFO(node_->get_logger(), "moving");
+
       {
         std::scoped_lock lock(mutex_diagnostics_);
 
@@ -2213,14 +2226,7 @@ namespace mrs_octomap_planner
 
     auto diagnostics = mrs_lib::get_mutexed(mutex_diagnostics_, diagnostics_);
 
-    try
-    {
-      pub_diagnostics_.publish(diagnostics);
-    }
-    catch (...)
-    {
-      // RCLCPP_ERROR(node_->get_logger(),"exception caught during publishing topic '%s'", diagnostics.c_str());
-    }
+    pub_diagnostics_.publish(diagnostics);
 
     auto planner_time_flag = mrs_lib::get_mutexed(mutex_planner_time_flag_, planner_time_flag_);
 
@@ -2230,6 +2236,7 @@ namespace mrs_octomap_planner
       {
         RCLCPP_ERROR(node_->get_logger(), "[MrsOctomapPlanner]: Planner is deadlocked, restarting!");
         rclcpp::shutdown();
+        exit(1);
       }
     }
   }
@@ -2267,14 +2274,7 @@ namespace mrs_octomap_planner
       }
     }
 
-    try
-    {
-      pub_virtual_obstacles_.publish(ma);
-    }
-    catch (...)
-    {
-      // RCLCPP_ERROR(node_->get_logger(),"exception caught during publishing topic '%s'", ma);
-    }
+    pub_virtual_obstacles_.publish(ma);
   }
 
   //}
