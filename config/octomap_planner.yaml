@@ -1,98 +1,103 @@
-planning_tree:
-  resolution: 0.4
+mrs_octomap_planner:
 
-distance_transform:
-  submap_distance: 20.0 # [m] from the UAV into all directions
+  octomap_planner:
 
-main_timer:
-  rate: 3.0 # [Hz]
+    planning_tree:
+      resolution: 0.4
 
-diagnostics_timer:
-  rate: 10.0 # [Hz]
+    distance_transform:
+      submap_distance: 20.0 # [m] from the UAV into all directions
 
-# future collision check
-future_check_timer: # timer for collision checking with most recent map 
-  rate: 10.0 # [Hz]
+    main_timer:
+      rate: 3.0 # [Hz]
 
-safe_obstacle_distance: 
-  default: 1.0 # [m]
-  min: 1.0 # [m]
-  max: 5.0 # [m]
+    diagnostics_timer:
+      rate: 10.0 # [Hz]
 
-goal_reached_dist: 0.6 # [m] distance from current position within which the goal is considered to be reached 
-min_path_length: 0.2 # [m] minimum length of path to be published
-min_path_heading_change: 0.1 # [rad] minimum change of heading in the path to be published
-max_attempts_to_replan: 2 # [-] maximum number of attempts to replan when a path is not found
-min_dist_to_goal_improvement: 1.0 # [m] minimum improvement in distance of final waypoint of the path to user goal in two consecutive replanning steps
-max_goal_dist_to_disable_replanning: 2.0 # [m] maximum distance for which the replanning can be disabled when there is a risk of oscillations (set to zero to disable mitigation of oscillations)
-use_user_heading_for_final_point: false # if true, final point with user heading is appended to every publish path, can lead to deviation from required heading when used in combination with changing heading in direction of flight
+    # future collision check
+    future_check_timer: # timer for collision checking with most recent map
+      rate: 10.0 # [Hz]
 
-distance_penalty: 1.0 # coefficient for traveled distance from start in A* cost function
-greedy_penalty: 1.0 # coefficient for estimated distance to goal in A* cost function
+    safe_obstacle_distance:
+      default: 1.0 # [m]
+      min: 1.0 # [m]
+      max: 5.0 # [m]
 
-max_waypoint_distance: 0.0 # [m] // or set negative for no padding
-min_altitude: -1000.0 # [m]
-max_altitude: 1000.0 # [m]
-unknown_is_occupied: true # if false, planning through unknown space is enabled 
-replan_after: 1.0 # [s] time from last planning after which replanning is triggered
+    goal_reached_dist: 0.6 # [m] distance from current position within which the goal is considered to be reached
+    min_path_length: 0.2 # [m] minimum length of path to be published
+    min_path_heading_change: 0.1 # [rad] minimum change of heading in the path to be published
+    max_attempts_to_replan: 2 # [-] maximum number of attempts to replan when a path is not found
+    min_dist_to_goal_improvement: 1.0 # [m] minimum improvement in distance of final waypoint of the path to user goal in two consecutive replanning steps
+    max_goal_dist_to_disable_replanning: 2.0 # [m] maximum distance for which the replanning can be disabled when there is a risk of oscillations (set to zero to disable mitigation of oscillations)
+    use_user_heading_for_final_point: false # if true, final point with user heading is appended to every publish path, can lead to deviation from required heading when used in combination with changing heading in direction of flight
 
-timeout_threshold: 2.0 # [s] time after which A* planning is aborted and returns path to the node with the so far lowest cost   
-time_for_trajectory_generator: 0.6 # [s]
+    distance_penalty: 1.0 # coefficient for traveled distance from start in A* cost function
+    greedy_penalty: 1.0 # coefficient for estimated distance to goal in A* cost function
 
-collision_check_point_count: 8 # [-] number of points used for future collision check of UAV trajectory, uniformly sampled on a 2D circle around each trajectory point
-min_allowed_trajectory_points_after_crop: 10 # [-] when future trajectory approaches an obstacle, it can be cropped up to this number of points
+    max_waypoint_distance: 0.0 # [m] // or set negative for no padding
+    min_altitude: -1000.0 # [m]
+    max_altitude: 1000.0 # [m]
+    unknown_is_occupied: true # if false, planning through unknown space is enabled
+    replan_after: 1.0 # [s] time from last planning after which replanning is triggered
 
-trajectory_generator:
-  input_trajectory_length: 12.0 # [s] (the rest of path will be ignored during trajectory generation)
-  relax_heading: true # if true, constraints on heading dynamics are ignored during trajectory generation process
-  use_heading: true # if false heading is ignored during trajectory tracking
-  heading_offset: 0.0 # [rad] offset of desired heading to direction of flight
-  turn_in_flight_direction: true # sample heading reference in direction of flight
-  max_segment_length_heading: 1.0 # [m] maximum length of segment for heading sampling
+    timeout_threshold: 2.0 # [s] time after which A* planning is aborted and returns path to the node with the so far lowest cost
+    time_for_trajectory_generator: 0.6 # [s]
 
-subt_planner:
-  use: false
-  apply_postprocessing: false
-  make_path_straight: true # cannot be applied if postprocessing is active
-  debug_info: false
-  clearing_dist: 0.15 # [m] clear occupied and unknown space up to this distance from the starting position, might cause collision if greater than min_path_length
-  admissibility: 1.0 # allows paths of length up to (admissibility * optimum length), speeds up the planning
+    collision_check_point_count: 8 # [-] number of points used for future collision check of UAV trajectory, uniformly sampled on a 2D circle around each trajectory point
+    min_allowed_trajectory_points_after_crop: 10 # [-] when future trajectory approaches an obstacle, it can be cropped up to this number of points
 
-  apply_pruning: true
-  pruning_dist: 0.6
+    trajectory_generator:
+      input_trajectory_length: 12.0 # [s] (the rest of path will be ignored during trajectory generation)
+      relax_heading: true # if true, constraints on heading dynamics are ignored during trajectory generation process
+      use_heading: true # if false heading is ignored during trajectory tracking
+      heading_offset: 0.0 # [rad] offset of desired heading to direction of flight
+      turn_in_flight_direction: true # sample heading reference in direction of flight
+      max_segment_length_heading: 1.0 # [m] maximum length of segment for heading sampling
 
-  planning_tree:
-    bounding_box:
-      horizontal: 60.0 # [m]
-      vertical: 30.0 # [m]
+    subt_planner:
 
-  postprocessing:
-    timeout: 0.05 # [s]
-    path_length: -1.0 # [m] length of subpath that is passed to postprocessing (set negativ number to process whole path)
-    safe_dist: 2.5 # [m]
-    max_iteration: 5
-    horizontal_neighbors_only: true
-    z_diff_tolerance: 0.5 # [m]
-    fix_goal_point: true
+      use: false
+      apply_postprocessing: false
+      make_path_straight: true # cannot be applied if postprocessing is active
+      debug_info: false
+      clearing_dist: 0.15 # [m] clear occupied and unknown space up to this distance from the starting position, might cause collision if greater than min_path_length
+      admissibility: 1.0 # allows paths of length up to (admissibility * optimum length), speeds up the planning
 
-  shortening:
-    window_size: 20
-    distance: 1.0 # [m]
+      apply_pruning: true
+      pruning_dist: 0.6
 
-  remove_obsolete_points: true
-  obsolete_points_tolerance: 0.05
+      planning_tree:
+        bounding_box:
+          horizontal: 60.0 # [m]
+          vertical: 30.0 # [m]
 
-# visualization
-points_scale: 0.05
-lines_scale: 0.02
+      postprocessing:
+        timeout: 0.05 # [s]
+        path_length: -1.0 # [m] length of subpath that is passed to postprocessing (set negativ number to process whole path)
+        safe_dist: 2.5 # [m]
+        max_iteration: 5
+        horizontal_neighbors_only: true
+        z_diff_tolerance: 0.5 # [m]
+        fix_goal_point: true
 
-scope_timer:
-  enable: false # enable scope timer for measuring processing time
-  duration: 0.1 # [s] scope timer output is throttled to this period
-  log_filename: ""
+      shortening:
+        window_size: 20
+        distance: 1.0 # [m]
 
-restart_planner_on_deadlock: true
-planner_deadlock_timeout_factor: 5.0 # deadlock will be detected after this factor times timeout threshold will be exceeded 
+      remove_obsolete_points: true
+      obsolete_points_tolerance: 0.05
 
-virtual_obstacle_publishing_timer: 
-  rate: 0.5 # [s]
+    # visualization
+    points_scale: 0.05
+    lines_scale: 0.02
+
+    scope_timer:
+      enable: false # enable scope timer for measuring processing time
+      duration: 0.1 # [s] scope timer output is throttled to this period
+      log_filename: ""
+
+    restart_planner_on_deadlock: true
+    planner_deadlock_timeout_factor: 5.0 # deadlock will be detected after this factor times timeout threshold will be exceeded
+
+    virtual_obstacle_publishing_timer:
+      rate: 0.5 # [s]

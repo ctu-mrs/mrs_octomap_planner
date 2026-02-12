@@ -70,10 +70,18 @@ namespace mrs_octomap_planner
     node_ = this->shared_from_this();
     clock_ = node_->get_clock();
 
-    RCLCPP_INFO(this->get_logger(), "[MrsMinimalOctomapPlanner]: initializing");
+    RCLCPP_INFO(this->get_logger(), "initializing");
 
     mrs_lib::ParamLoader param_loader(node_, "MrsMinimalOctomapPlanner");
-    param_loader.addYamlFileFromParam("config");
+
+    if (!param_loader.addYamlFileFromParam("config"))
+    {
+      RCLCPP_ERROR(this->get_logger(), "Could not load the config file");
+      rclcpp::shutdown();
+      exit(1);
+    }
+
+    param_loader.setPrefix("mrs_uav_planner/minimal_planner/");
 
     param_loader.loadParam("safe_obstacle_distance", _safe_obstacle_distance_);
     param_loader.loadParam("distance_penalty", _distance_penalty_);
@@ -92,7 +100,7 @@ namespace mrs_octomap_planner
 
     if (!param_loader.loadedSuccessfully())
     {
-      RCLCPP_ERROR(this->get_logger(), "[MrsMinimalOctomapPlanner]: Could not load all parameters");
+      RCLCPP_ERROR(this->get_logger(), "Could not load all parameters");
       rclcpp::shutdown();
     }
 
@@ -121,7 +129,7 @@ namespace mrs_octomap_planner
 
     is_initialized_ = true;
 
-    RCLCPP_INFO(this->get_logger(), "[MrsMinimalOctomapPlanner]: initialized");
+    RCLCPP_INFO(this->get_logger(), "initialized");
   }
 
   void MinimalOctomapPlanner::callbackOctomap(const octomap_msgs::msg::Octomap::ConstSharedPtr msg)
@@ -131,13 +139,13 @@ namespace mrs_octomap_planner
       return;
     }
 
-    RCLCPP_INFO_ONCE(this->get_logger(), "[MrsMinimalOctomapPlanner]: getting octomap");
+    RCLCPP_INFO_ONCE(this->get_logger(), "getting octomap");
 
     std::optional<OcTreeSharedPtr_t> octree_local = msgToMap(msg);
 
     if (!octree_local)
     {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "[MrsMinimalOctomapPlanner]: received map is empty!");
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "received map is empty!");
       return;
     }
     mrs_lib::set_mutexed(mutex_octree_, octree_local.value(), octree_);
@@ -159,7 +167,7 @@ namespace mrs_octomap_planner
 
     if (!abstract_tree)
     {
-      RCLCPP_WARN(this->get_logger(), "[MrsMinimalOctomapPlanner]: Octomap message is empty! can not convert to OcTree");
+      RCLCPP_WARN(this->get_logger(), "Octomap message is empty! can not convert to OcTree");
       return {};
     } else
     {
@@ -179,7 +187,7 @@ namespace mrs_octomap_planner
       return;
     }
 
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "[MrsMinimalOctomapPlanner]: octomap timeout!");
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "octomap timeout!");
   }
 
   void MinimalOctomapPlanner::callbackGetPath(const std::shared_ptr<mrs_modules_msgs::srv::Path::Request> req,
@@ -196,8 +204,7 @@ namespace mrs_octomap_planner
 
     if (!got_octomap)
     {
-      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "[MrsMinimalOctomapPlanner]: waiting for data: octomap = %s",
-                           got_octomap ? "TRUE" : "FALSE");
+      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "waiting for datoctomap = %s", got_octomap ? "TRUE" : "FALSE");
       res->success = false;
       return;
     }
@@ -228,14 +235,14 @@ namespace mrs_octomap_planner
       path.first.push_back(plan_to);
       std::stringstream ss;
       ss << "Found complete path of length = " << path.first.size();
-      RCLCPP_INFO_STREAM(this->get_logger(), "[MrsMinimalOctomapPlanner]: " << ss.str());
+      RCLCPP_INFO_STREAM(this->get_logger(), "" << ss.str());
       res->message = ss.str();
     } else
     {
       // no path at all
       if (path.first.size() < 2)
       {
-        RCLCPP_WARN(this->get_logger(), "[MrsMinimalOctomapPlanner]: No path found");
+        RCLCPP_WARN(this->get_logger(), "No path found");
         res->success = false;
         res->message = "No path found";
         res->path = std::vector<geometry_msgs::msg::Point>();
@@ -245,7 +252,7 @@ namespace mrs_octomap_planner
       // path not until the end but to a closer point
       std::stringstream ss;
       ss << "Incomplete path found of length = " << path.first.size();
-      RCLCPP_INFO_STREAM(this->get_logger(), "[MrsMinimalOctomapPlanner]: " << ss.str());
+      RCLCPP_INFO_STREAM(this->get_logger(), "" << ss.str());
       res->message = ss.str();
 
       double front_x = path.first.front().x();
@@ -262,7 +269,7 @@ namespace mrs_octomap_planner
       {
         std::stringstream ss;
         ss << "Path too short, length: " << dist_path_start_to_end;
-        RCLCPP_WARN_STREAM(this->get_logger(), "[MrsMinimalOctomapPlanner]: " << ss.str());
+        RCLCPP_WARN_STREAM(this->get_logger(), "" << ss.str());
         res->message = ss.str();
       }
     }
@@ -274,7 +281,7 @@ namespace mrs_octomap_planner
 
     if (!ret)
     {
-      RCLCPP_ERROR(this->get_logger(), "[MrsMinimalOctomapPlanner]: Failed to transform path from %s to %s", from_frame.c_str(), to_frame.c_str());
+      RCLCPP_ERROR(this->get_logger(), "Failed to transform path from %s to %s", from_frame.c_str(), to_frame.c_str());
       res->success = false;
       res->message = "transform unavailable";
       return;
@@ -296,8 +303,7 @@ namespace mrs_octomap_planner
 
       if (!transformed_point)
       {
-        RCLCPP_ERROR(this->get_logger(), "[MrsMinimalOctomapPlanner]: Failed to transform path point from %s to %s even when TF exists", from_frame.c_str(),
-                     to_frame.c_str());
+        RCLCPP_ERROR(this->get_logger(), "Failed to transform path point from %s to %s even when TF exists", from_frame.c_str(), to_frame.c_str());
         res->success = false;
         res->message = "point transform failed";
         return;
