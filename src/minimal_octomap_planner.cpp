@@ -3,6 +3,7 @@
 #include <mrs_lib/param_loader.h>
 #include <mrs_lib/subscriber_handler.h>
 #include <mrs_lib/transformer.h>
+#include <mrs_lib/node.h>
 #include <octomap/OcTree.h>
 #include <octomap_msgs/msg/octomap.hpp>
 #include <octomap_msgs/conversions.h>
@@ -16,11 +17,10 @@ namespace mrs_octomap_planner
   using OcTree_t = octomap::OcTree;
   using OcTreeSharedPtr_t = std::shared_ptr<octomap::OcTree>;
 
-  class MinimalOctomapPlanner : public rclcpp::Node
+  class MinimalOctomapPlanner : public mrs_lib::Node
   {
   public:
     explicit MinimalOctomapPlanner(const rclcpp::NodeOptions& options);
-    virtual void onInit();
 
   private:
     rclcpp::Node::SharedPtr node_;
@@ -60,23 +60,20 @@ namespace mrs_octomap_planner
     std::unique_ptr<mrs_lib::Transformer> transformer_;
 
     std::optional<OcTreeSharedPtr_t> msgToMap(const octomap_msgs::msg::Octomap::ConstSharedPtr octomap);
-
-    rclcpp ::TimerBase::SharedPtr timer_init_;
   };
 
-  void MinimalOctomapPlanner::onInit()
+  MinimalOctomapPlanner::MinimalOctomapPlanner(const rclcpp::NodeOptions& options) : mrs_lib::Node("minimal_octomap_planner", options)
   {
-    timer_init_->cancel();
-    node_ = this->shared_from_this();
+    node_ = this_node_ptr();
     clock_ = node_->get_clock();
 
-    RCLCPP_INFO(this->get_logger(), "initializing");
+    RCLCPP_INFO(node_->get_logger(), "initializing");
 
     mrs_lib::ParamLoader param_loader(node_, "MrsMinimalOctomapPlanner");
 
     if (!param_loader.addYamlFileFromParam("config"))
     {
-      RCLCPP_ERROR(this->get_logger(), "Could not load the config file");
+      RCLCPP_ERROR(node_->get_logger(), "Could not load the config file");
       rclcpp::shutdown();
       exit(1);
     }
@@ -100,8 +97,9 @@ namespace mrs_octomap_planner
 
     if (!param_loader.loadedSuccessfully())
     {
-      RCLCPP_ERROR(this->get_logger(), "Could not load all parameters");
+      RCLCPP_ERROR(node_->get_logger(), "Could not load all parameters");
       rclcpp::shutdown();
+      exit(1);
     }
 
     auto callback_octomap = [this](const octomap_msgs::msg::Octomap::ConstSharedPtr msg) { this->callbackOctomap(msg); };
@@ -115,13 +113,13 @@ namespace mrs_octomap_planner
 
     sh_octomap_ = mrs_lib::SubscriberHandler<octomap_msgs::msg::Octomap>(shopts, "~/octomap_in", callback_octomap);
 
-    service_server_get_path_ = this->create_service<mrs_modules_msgs::srv::Path>(
+    service_server_get_path_ = node_->create_service<mrs_modules_msgs::srv::Path>(
         "get_path_in", std::bind(&MinimalOctomapPlanner::callbackGetPath, this, std::placeholders::_1, std::placeholders::_2));
 
     transformer_ = std::make_unique<mrs_lib::Transformer>(node_);
     transformer_->setLookupTimeout(std::chrono::duration<double>(0.5));
     transformer_->retryLookupNewest(true);
-    RCLCPP_INFO(this->get_logger(), "Initialized transformer.");
+    RCLCPP_INFO(node_->get_logger(), "Initialized transformer.");
 
     bv_planner_ = std::make_shared<mrs_lib::BatchVisualizer>(node_, "visualize_planner", "");
     bv_planner_->setPointsScale(_scale_points_);
@@ -129,7 +127,7 @@ namespace mrs_octomap_planner
 
     is_initialized_ = true;
 
-    RCLCPP_INFO(this->get_logger(), "initialized");
+    RCLCPP_INFO(node_->get_logger(), "initialized");
   }
 
   void MinimalOctomapPlanner::callbackOctomap(const octomap_msgs::msg::Octomap::ConstSharedPtr msg)
@@ -139,13 +137,13 @@ namespace mrs_octomap_planner
       return;
     }
 
-    RCLCPP_INFO_ONCE(this->get_logger(), "getting octomap");
+    RCLCPP_INFO_ONCE(node_->get_logger(), "getting octomap");
 
     std::optional<OcTreeSharedPtr_t> octree_local = msgToMap(msg);
 
     if (!octree_local)
     {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "received map is empty!");
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 1000, "received map is empty!");
       return;
     }
     mrs_lib::set_mutexed(mutex_octree_, octree_local.value(), octree_);
@@ -167,7 +165,7 @@ namespace mrs_octomap_planner
 
     if (!abstract_tree)
     {
-      RCLCPP_WARN(this->get_logger(), "Octomap message is empty! can not convert to OcTree");
+      RCLCPP_WARN(node_->get_logger(), "Octomap message is empty! can not convert to OcTree");
       return {};
     } else
     {
@@ -187,7 +185,7 @@ namespace mrs_octomap_planner
       return;
     }
 
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "octomap timeout!");
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 1000, "octomap timeout!");
   }
 
   void MinimalOctomapPlanner::callbackGetPath(const std::shared_ptr<mrs_modules_msgs::srv::Path::Request> req,
@@ -204,16 +202,15 @@ namespace mrs_octomap_planner
 
     if (!got_octomap)
     {
-      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "waiting for datoctomap = %s", got_octomap ? "TRUE" : "FALSE");
+      RCLCPP_INFO_THROTTLE(node_->get_logger(), *clock_, 1000, "waiting for datoctomap = %s", got_octomap ? "TRUE" : "FALSE");
       res->success = false;
       return;
     }
 
     bv_planner_->setParentFrame(mrs_lib::get_mutexed(mutex_octree_, octree_frame_));
-    mrs_octomap_planner::AstarPlanner planner =
-        mrs_octomap_planner::AstarPlanner(this->shared_from_this(), "MrsMinimalOctomapPlanner", _safe_obstacle_distance_, _safe_obstacle_distance_,
-                                          _distance_transform_distance_, _planning_tree_resolution_, _distance_penalty_, _greedy_penalty_, _timeout_threshold_,
-                                          _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
+    mrs_octomap_planner::AstarPlanner planner = mrs_octomap_planner::AstarPlanner(
+        node_, "MrsMinimalOctomapPlanner", _safe_obstacle_distance_, _safe_obstacle_distance_, _distance_transform_distance_, _planning_tree_resolution_,
+        _distance_penalty_, _greedy_penalty_, _timeout_threshold_, _max_waypoint_distance_, _min_altitude_, _max_altitude_, _unknown_is_occupied_, bv_planner_);
 
     octomap::point3d plan_from, plan_to;
     plan_from.x() = req->start.x;
@@ -235,14 +232,14 @@ namespace mrs_octomap_planner
       path.first.push_back(plan_to);
       std::stringstream ss;
       ss << "Found complete path of length = " << path.first.size();
-      RCLCPP_INFO_STREAM(this->get_logger(), "" << ss.str());
+      RCLCPP_INFO_STREAM(node_->get_logger(), "" << ss.str());
       res->message = ss.str();
     } else
     {
       // no path at all
       if (path.first.size() < 2)
       {
-        RCLCPP_WARN(this->get_logger(), "No path found");
+        RCLCPP_WARN(node_->get_logger(), "No path found");
         res->success = false;
         res->message = "No path found";
         res->path = std::vector<geometry_msgs::msg::Point>();
@@ -252,7 +249,7 @@ namespace mrs_octomap_planner
       // path not until the end but to a closer point
       std::stringstream ss;
       ss << "Incomplete path found of length = " << path.first.size();
-      RCLCPP_INFO_STREAM(this->get_logger(), "" << ss.str());
+      RCLCPP_INFO_STREAM(node_->get_logger(), "" << ss.str());
       res->message = ss.str();
 
       double front_x = path.first.front().x();
@@ -269,7 +266,7 @@ namespace mrs_octomap_planner
       {
         std::stringstream ss;
         ss << "Path too short, length: " << dist_path_start_to_end;
-        RCLCPP_WARN_STREAM(this->get_logger(), "" << ss.str());
+        RCLCPP_WARN_STREAM(node_->get_logger(), "" << ss.str());
         res->message = ss.str();
       }
     }
@@ -281,7 +278,7 @@ namespace mrs_octomap_planner
 
     if (!ret)
     {
-      RCLCPP_ERROR(this->get_logger(), "Failed to transform path from %s to %s", from_frame.c_str(), to_frame.c_str());
+      RCLCPP_ERROR(node_->get_logger(), "Failed to transform path from %s to %s", from_frame.c_str(), to_frame.c_str());
       res->success = false;
       res->message = "transform unavailable";
       return;
@@ -303,7 +300,7 @@ namespace mrs_octomap_planner
 
       if (!transformed_point)
       {
-        RCLCPP_ERROR(this->get_logger(), "Failed to transform path point from %s to %s even when TF exists", from_frame.c_str(), to_frame.c_str());
+        RCLCPP_ERROR(node_->get_logger(), "Failed to transform path point from %s to %s even when TF exists", from_frame.c_str(), to_frame.c_str());
         res->success = false;
         res->message = "point transform failed";
         return;
@@ -317,11 +314,6 @@ namespace mrs_octomap_planner
     res->header.frame_id = to_frame;
     res->path = tf_path;
     return;
-  }
-
-  MinimalOctomapPlanner::MinimalOctomapPlanner(const rclcpp::NodeOptions& options) : rclcpp::Node("minimal_octomap_planner", options)
-  {
-    timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1), std::bind(&MinimalOctomapPlanner::onInit, this));
   }
 
 } // namespace mrs_octomap_planner
