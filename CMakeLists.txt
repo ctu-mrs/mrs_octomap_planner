@@ -126,7 +126,7 @@ install(TARGETS ${LIBRARIES} EXPORT export_${PROJECT_NAME}
 
 install(
   DIRECTORY include/
-  DESTINATION .
+  DESTINATION include/
 )
 
 install(

@@ -8,7 +8,7 @@
 #include <octomap_msgs/msg/octomap.hpp>
 #include <octomap_msgs/conversions.h>
 #include <mrs_modules_msgs/srv/path.hpp>
-#include <astar_planner.hpp>
+#include <mrs_octomap_planner/astar_planner.hpp>
 #include <iostream>
 #include <memory>
 

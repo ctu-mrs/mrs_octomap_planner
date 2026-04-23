@@ -1,4 +1,4 @@
-#include <astar_planner.hpp>
+#include <mrs_octomap_planner/astar_planner.hpp>
 
 namespace mrs_octomap_planner
 {

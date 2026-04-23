@@ -43,7 +43,7 @@
 
 #include <std_srvs/srv/trigger.hpp>
 
-#include <astar_planner.hpp>
+#include <mrs_octomap_planner/astar_planner.hpp>
 #include <mrs_subt_planning_lib/astar_planner.h>
 
 #include <visualization_msgs/msg/marker.hpp>
